@@ -95,6 +95,10 @@ import { useSettledMarkdown } from '../lib/use-rendered-markdown'
 import { recordRendererPerf } from '../lib/perf'
 import { parseOutline } from '../lib/outline'
 import {
+  findRenderedHeadingForOutlineLine,
+  previewScrollTopForHeading
+} from '../lib/preview-outline-jump'
+import {
   ArchiveIcon,
   ArrowUpRightIcon,
   CheckSquareIcon,
@@ -583,6 +587,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const ignoreEditorScrollRef = useRef(false)
   const ignorePreviewScrollRef = useRef(false)
   const pendingOutlineJumpLineRef = useRef<number | null>(null)
+  const pendingPreviewOutlineJumpLineRef = useRef<number | null>(null)
+  const outlinePreviewJumpFrameRef = useRef<number | null>(null)
   const activeOutlineLineRef = useRef<number | null>(null)
   const activeOutlineFrameRef = useRef<number | null>(null)
   const selectionActionFrameRef = useRef<number | null>(null)
@@ -728,6 +734,55 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     return () => window.removeEventListener(ZEN_SET_PANE_MODE_EVENT, handler)
   }, [applyPaneMode, isActive])
 
+  const scrollPreviewToOutlineLine = useCallback((line: number): boolean => {
+    if (mode !== 'split' || !content) return false
+    const previewEl = previewScrollRef.current
+    if (!previewEl) return false
+    const items = parseOutline(content.body)
+    const heading = findRenderedHeadingForOutlineLine(previewEl, items, line)
+    if (!heading) return false
+    const nextTop = previewScrollTopForHeading(previewEl, heading, OUTLINE_JUMP_TOP_MARGIN)
+    if (Math.abs(previewEl.scrollTop - nextTop) >= 1) {
+      ignorePreviewScrollRef.current = true
+      previewEl.scrollTo({ top: nextTop, behavior: 'auto' })
+    }
+    return true
+  }, [content?.body, mode])
+
+  const schedulePreviewOutlineJump = useCallback((line: number): void => {
+    if (mode !== 'split') return
+    pendingPreviewOutlineJumpLineRef.current = line
+    if (outlinePreviewJumpFrameRef.current != null) {
+      cancelAnimationFrame(outlinePreviewJumpFrameRef.current)
+    }
+    outlinePreviewJumpFrameRef.current = requestAnimationFrame(() => {
+      outlinePreviewJumpFrameRef.current = null
+      if (scrollPreviewToOutlineLine(line)) {
+        pendingPreviewOutlineJumpLineRef.current = null
+      }
+    })
+  }, [mode, scrollPreviewToOutlineLine])
+
+  const handlePreviewRendered = useCallback((): void => {
+    const pendingLine = pendingPreviewOutlineJumpLineRef.current
+    if (pendingLine == null) return
+    if (scrollPreviewToOutlineLine(pendingLine)) {
+      pendingPreviewOutlineJumpLineRef.current = null
+    }
+  }, [scrollPreviewToOutlineLine])
+
+  useEffect(() => {
+    pendingPreviewOutlineJumpLineRef.current = null
+  }, [content?.path])
+
+  useEffect(() => {
+    return () => {
+      if (outlinePreviewJumpFrameRef.current != null) {
+        cancelAnimationFrame(outlinePreviewJumpFrameRef.current)
+      }
+    }
+  }, [])
+
   const commitOutlineJump = useCallback((line: number) => {
     const view = viewRef.current
     if (!view) return false
@@ -740,10 +795,11 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         yMargin: OUTLINE_JUMP_TOP_MARGIN
       })
     })
+    schedulePreviewOutlineJump(safeLine)
     setFocusedPanel('editor')
     view.focus()
     return true
-  }, [setFocusedPanel])
+  }, [schedulePreviewOutlineJump, setFocusedPanel])
 
   const jumpToOutlineLine = useCallback((line: number) => {
     pendingOutlineJumpLineRef.current = line
@@ -2584,6 +2640,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
                     markdown={previewMarkdown}
                     notePath={content.path}
                     onRequestEdit={handlePreviewRequestEdit}
+                    onRendered={handlePreviewRendered}
                   />
                 </div>
               )}
