@@ -11,6 +11,11 @@ import { resolveQuickNoteTitle } from './lib/quick-note-title'
 import { matchesShortcut } from './lib/keymaps'
 import { requestPaneMode } from './lib/pane-mode'
 import { recordRendererPerf } from './lib/perf'
+import {
+  appUpdateNoticeLabel,
+  appUpdatePrimaryActionLabel,
+  useAppUpdateState
+} from './lib/app-update-state'
 
 let editorModulePromise: Promise<typeof import('./components/Editor')> | null = null
 const EDITOR_MODULE_WARMUP_GRACE_MS = 40
@@ -141,6 +146,53 @@ const EmptyVault = lazy(async () => {
 
 function EditorLoadingFallback(): JSX.Element {
   return <div className="min-w-0 flex-1 bg-paper-100" aria-label="Loading editor" />
+}
+
+function AppUpdateNotice({
+  hidden
+}: {
+  hidden: boolean
+}): JSX.Element | null {
+  const updateState = useAppUpdateState()
+  const label = appUpdateNoticeLabel(updateState)
+  const actionLabel = appUpdatePrimaryActionLabel(updateState)
+
+  if (hidden || !label) return null
+
+  const runPrimaryAction = (): void => {
+    if (updateState?.phase === 'available') {
+      void window.zen.downloadAppUpdate()
+      return
+    }
+    if (updateState?.phase === 'downloaded') {
+      void window.zen.installAppUpdate()
+    }
+  }
+
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="fixed bottom-4 right-4 z-40 flex max-w-[min(28rem,calc(100vw-2rem))] items-center gap-2 rounded-xl border border-accent/30 bg-paper-50/95 px-3 py-2 text-sm text-ink-800 shadow-float backdrop-blur"
+    >
+      <span className="h-2 w-2 shrink-0 rounded-full bg-accent shadow-[0_0_0_4px_rgb(var(--z-accent)/0.12)]" />
+      <span className="min-w-0 truncate font-medium">{label}</span>
+      {updateState?.phase === 'downloading' && (
+        <span className="shrink-0 rounded-md bg-paper-200/80 px-1.5 py-0.5 text-[11px] font-medium text-ink-600">
+          {Math.round(updateState.progressPercent ?? 0)}%
+        </span>
+      )}
+      {actionLabel && (
+        <button
+          type="button"
+          onClick={runPrimaryAction}
+          className="shrink-0 rounded-lg border border-accent/30 bg-accent/10 px-2.5 py-1 text-xs font-medium text-accent transition-colors hover:bg-accent/15"
+        >
+          {actionLabel}
+        </button>
+      )}
+    </div>
+  )
 }
 
 function App(): JSX.Element {
@@ -507,6 +559,7 @@ function App(): JSX.Element {
         <PromptHost />
         <ConfirmHost />
         <ServerDirectoryPickerHost />
+        <AppUpdateNotice hidden={zenMode} />
       </div>
     )
   }
@@ -559,6 +612,7 @@ function App(): JSX.Element {
       <PromptHost />
       <ConfirmHost />
       <ServerDirectoryPickerHost />
+      <AppUpdateNotice hidden={zenMode || settingsOpen} />
       <Suspense fallback={null}>
         <VimNav />
       </Suspense>

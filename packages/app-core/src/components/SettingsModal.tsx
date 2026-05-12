@@ -41,6 +41,7 @@ import {
   getSettingsSearchResults,
   type SettingsSearchCategory
 } from '../lib/settings-search'
+import { useAppUpdateState } from '../lib/app-update-state'
 import { getZenBridge } from '@zennotes/bridge-contract/bridge'
 import companyLogo from '../assets/lumary-labs-logo.svg'
 import { confirmApp } from '../lib/confirm-requests'
@@ -265,7 +266,7 @@ export function SettingsModal(): JSX.Element {
   const setDarkSidebar = useStore((s) => s.setDarkSidebar)
   const showSidebarChevrons = useStore((s) => s.showSidebarChevrons)
   const setShowSidebarChevrons = useStore((s) => s.setShowSidebarChevrons)
-  const [appUpdateState, setAppUpdateState] = useState<AppUpdateState | null>(null)
+  const appUpdateState = useAppUpdateState()
   const [editingRemoteProfile, setEditingRemoteProfile] = useState<{
     mode: 'create' | 'edit'
     value?: RemoteWorkspaceProfileInput
@@ -314,20 +315,6 @@ export function SettingsModal(): JSX.Element {
       cancelled = true
     }
   }, [searchToolPaths])
-
-  useEffect(() => {
-    let cancelled = false
-    void window.zen.getAppUpdateState().then((state) => {
-      if (!cancelled) setAppUpdateState(state)
-    })
-    const unsubscribe = window.zen.onAppUpdateState((state) => {
-      if (!cancelled) setAppUpdateState(state)
-    })
-    return () => {
-      cancelled = true
-      unsubscribe()
-    }
-  }, [])
 
   const triggerUpdateCheck = useCallback(() => {
     void window.zen.checkForAppUpdates().then(

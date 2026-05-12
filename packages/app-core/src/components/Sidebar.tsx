@@ -71,6 +71,7 @@ import {
   SIDEBAR_PROGRESSIVE_SENTINEL_MARGIN_PX,
 } from "../lib/sidebar-progressive";
 import { buildVaultSwitcherEntries } from "../lib/vault-switcher";
+import { appUpdateBadgeLabel, useAppUpdateState } from "../lib/app-update-state";
 
 const ACTIVE_TAG_PARSE_DELAY_MS = 220;
 const ACTIVE_TAG_PARSE_LARGE_BODY_CHARS = 120_000;
@@ -340,6 +341,7 @@ export function Sidebar(): JSX.Element {
   const toggleSidebar = useStore((s) => s.toggleSidebar);
   const setFocusedPanel = useStore((s) => s.setFocusedPanel);
   const setSettingsOpen = useStore((s) => s.setSettingsOpen);
+  const appUpdateState = useAppUpdateState();
   const renameTag = useStore((s) => s.renameTag);
   const deleteTag = useStore((s) => s.deleteTag);
   const tagsCollapsed = useStore((s) => s.tagsCollapsed);
@@ -384,6 +386,15 @@ export function Sidebar(): JSX.Element {
   const setVaultSettings = useStore((s) => s.setVaultSettings);
   const canRevealInFileManager =
     window.zen.getAppInfo().runtime === "desktop" && workspaceMode !== "remote";
+  const appUpdateBadge = appUpdateBadgeLabel(appUpdateState);
+  const appUpdateSettingsTitle =
+    appUpdateState?.phase === "downloaded"
+      ? "Settings, update ready to install"
+      : appUpdateState?.phase === "downloading"
+        ? "Settings, update downloading"
+        : appUpdateState?.phase === "available"
+          ? "Settings, update available"
+          : "Settings";
   const canSwitchLocalVaults =
     window.zen.getAppInfo().runtime === "desktop" &&
     window.zen.getCapabilities().supportsLocalFilesystemPickers;
@@ -2537,6 +2548,8 @@ export function Sidebar(): JSX.Element {
         <SidebarFooterAction
           icon={<SettingsIcon />}
           label="Settings"
+          title={appUpdateSettingsTitle}
+          badgeLabel={appUpdateBadge ?? undefined}
           onClick={() => setSettingsOpen(true)}
           sidebarIdx={idxCounter.current.value++}
           vimHighlight={vimCursor === idxCounter.current.value - 1}
@@ -4120,7 +4133,9 @@ function SidebarRow({
 function SidebarFooterAction({
   icon,
   label,
+  title,
   count,
+  badgeLabel,
   active,
   onClick,
   sidebarIdx,
@@ -4130,7 +4145,9 @@ function SidebarFooterAction({
 }: {
   icon: JSX.Element;
   label: string;
+  title?: string;
   count?: number;
+  badgeLabel?: string;
   active?: boolean;
   onClick: () => void;
   sidebarIdx?: number;
@@ -4139,12 +4156,13 @@ function SidebarFooterAction({
   sidebarData?: { type: string };
 }): JSX.Element {
   const strongActive = !!active && (!sidebarFocused || !!vimHighlight);
+  const resolvedTitle = title ?? label;
   return (
     <button
       type="button"
       onClick={onClick}
-      title={label}
-      aria-label={label}
+      title={resolvedTitle}
+      aria-label={resolvedTitle}
       className={[
         "inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[11px] font-medium leading-none transition-colors whitespace-nowrap",
         active
@@ -4180,6 +4198,18 @@ function SidebarFooterAction({
           ].join(" ")}
         >
           {count}
+        </span>
+      )}
+      {badgeLabel && (
+        <span
+          className={[
+            "rounded-full px-1.5 py-0.5 text-[10px] font-semibold",
+            strongActive
+              ? "bg-white/16 text-white"
+              : "bg-accent/12 text-accent",
+          ].join(" ")}
+        >
+          {badgeLabel}
         </span>
       )}
     </button>
