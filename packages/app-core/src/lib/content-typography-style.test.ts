@@ -63,4 +63,19 @@ describe('editor and preview typography rhythm', () => {
       /\.prose-zen h5\s*\{[^}]*letter-spacing:\s*0;/s
     )
   })
+
+  it('styles the built-in CodeMirror search panel with app theme tokens', () => {
+    expect(stylesSource).toMatch(
+      /\.cm-editor \.cm-search\s*\{[^}]*background:\s*rgb\(var\(--z-bg-softer\)\)\s*!important;/s
+    )
+    expect(stylesSource).toMatch(
+      /\.cm-editor \.cm-search \.cm-textfield\s*\{[^}]*background:\s*rgb\(var\(--z-bg\)\)\s*!important;/s
+    )
+    expect(stylesSource).toMatch(
+      /\.cm-editor \.cm-search \.cm-button,\s*\.cm-editor \.cm-search button\[name="close"\]\s*\{[^}]*background:\s*rgb\(var\(--z-bg-2\)\)\s*!important;/s
+    )
+    expect(stylesSource).toMatch(
+      /\.cm-editor \.cm-search input\[type="checkbox"\]:checked\s*\{[^}]*background:\s*rgb\(var\(--z-accent\)\);/s
+    )
+  })
 })
