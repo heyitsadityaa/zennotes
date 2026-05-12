@@ -1,0 +1,58 @@
+// @vitest-environment jsdom
+
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  copyCodeBlockToClipboard,
+  enhanceCodeBlockCopy,
+  getCodeBlockTextForCopyButton
+} from './code-block-copy'
+
+type TestWindow = Omit<Window, 'zen'> & { zen?: Window['zen'] }
+
+const getOptionalWindow = (): TestWindow => window as unknown as TestWindow
+
+afterEach(() => {
+  vi.useRealTimers()
+  delete getOptionalWindow().zen
+})
+
+describe('code block copy enhancement', () => {
+  it('wraps rendered code blocks with one accessible copy button', () => {
+    const root = document.createElement('article')
+    root.innerHTML = '<pre><code>const answer = 42;\n</code></pre>'
+
+    enhanceCodeBlockCopy(root)
+    enhanceCodeBlockCopy(root)
+
+    const buttons = root.querySelectorAll<HTMLButtonElement>('.zen-code-copy-button')
+    const code = root.querySelector<HTMLElement>('.zen-code-block pre > code')
+
+    expect(buttons).toHaveLength(1)
+    expect(buttons[0]?.type).toBe('button')
+    expect(buttons[0]?.getAttribute('aria-label')).toBe('Copy code block')
+    expect(code?.textContent).toBe('const answer = 42;\n')
+    expect(getCodeBlockTextForCopyButton(buttons[0]!)).toBe('const answer = 42;\n')
+  })
+
+  it('copies the code text through the Zen clipboard bridge', () => {
+    vi.useFakeTimers()
+    const writeText = vi.fn()
+    getOptionalWindow().zen = {
+      clipboardWriteText: writeText
+    } as Partial<Window['zen']> as Window['zen']
+
+    const root = document.createElement('article')
+    root.innerHTML = '<pre><code>console.log("hi")\n</code></pre>'
+    enhanceCodeBlockCopy(root)
+    const button = root.querySelector<HTMLButtonElement>('.zen-code-copy-button')!
+
+    expect(copyCodeBlockToClipboard(button)).toBe(true)
+    expect(writeText).toHaveBeenCalledWith('console.log("hi")\n')
+    expect(button.textContent).toBe('Copied')
+    expect(button.dataset.copyState).toBe('copied')
+
+    vi.runOnlyPendingTimers()
+    expect(button.textContent).toBe('Copy')
+    expect(button.dataset.copyState).toBeUndefined()
+  })
+})

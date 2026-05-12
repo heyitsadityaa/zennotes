@@ -5,6 +5,11 @@ import { useStore } from '../store'
 import { renderMarkdown } from '../lib/markdown'
 import { enhanceLocalAssetNodes } from '../lib/local-assets'
 import { assetTabPath } from '../lib/asset-tabs'
+import {
+  CODE_COPY_BUTTON_SELECTOR,
+  copyCodeBlockToClipboard,
+  enhanceCodeBlockCopy
+} from '../lib/code-block-copy'
 
 type AnchorRectLike = Pick<DOMRect, 'left' | 'top' | 'right' | 'bottom' | 'width' | 'height'>
 
@@ -74,6 +79,7 @@ export function NoteHoverPreview({
   useEffect(() => {
     const root = articleRef.current
     if (!root || !content?.path) return
+    enhanceCodeBlockCopy(root)
     enhanceLocalAssetNodes(root, {
       vaultRoot: vault?.root,
       notePath: content.path,
@@ -82,6 +88,23 @@ export function NoteHoverPreview({
       }
     })
   }, [assetFilesKey, content?.path, html, openNoteInTab, vault?.root])
+
+  useEffect(() => {
+    const root = articleRef.current
+    if (!root || !html) return
+
+    const onClick = (e: MouseEvent): void => {
+      const target = e.target as HTMLElement
+      const copyButton = target.closest<HTMLButtonElement>(CODE_COPY_BUTTON_SELECTOR)
+      if (!copyButton) return
+      e.preventDefault()
+      e.stopPropagation()
+      copyCodeBlockToClipboard(copyButton)
+    }
+
+    root.addEventListener('click', onClick)
+    return () => root.removeEventListener('click', onClick)
+  }, [html])
 
   const position = useMemo(() => {
     const width = 380

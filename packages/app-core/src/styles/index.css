@@ -1864,6 +1864,67 @@ textarea,
   font-size: 0.88em;
   color: theme("colors.ink.800");
 }
+.prose-zen .zen-code-block {
+  position: relative;
+  margin: var(--z-prose-block-gap) 0;
+}
+.prose-zen .zen-code-block pre {
+  margin: 0;
+  padding-top: 38px;
+}
+.prose-zen .zen-code-copy-button {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  min-width: 52px;
+  border: 1px solid rgb(var(--z-bg-3) / 0.72);
+  border-radius: 6px;
+  background: rgb(var(--z-bg) / 0.82);
+  color: theme("colors.ink.600");
+  font-family: var(
+    --z-interface-font,
+    -apple-system,
+    BlinkMacSystemFont,
+    "SF Pro Text",
+    Inter,
+    system-ui,
+    sans-serif
+  );
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 0 8px;
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease;
+}
+.prose-zen .zen-code-copy-button:hover {
+  background: theme("colors.paper.50");
+  border-color: theme("colors.paper.400");
+  color: theme("colors.ink.900");
+}
+.prose-zen .zen-code-copy-button:focus-visible {
+  outline: 2px solid rgb(var(--z-accent) / 0.45);
+  outline-offset: 2px;
+}
+.prose-zen .zen-code-copy-button[data-copy-state="copied"] {
+  background: rgb(var(--z-green) / 0.08);
+  border-color: rgb(var(--z-green) / 0.45);
+  color: rgb(var(--z-green));
+}
+.prose-zen .zen-code-copy-button[data-copy-state="failed"] {
+  background: rgb(var(--z-red) / 0.08);
+  border-color: rgb(var(--z-red) / 0.45);
+  color: rgb(var(--z-red));
+}
 .prose-zen table {
   border-collapse: collapse;
   width: 100%;

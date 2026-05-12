@@ -13,6 +13,11 @@ import {
 import { assetTabPath } from "../lib/asset-tabs";
 import { enhancePreviewHeadingFolds } from "../lib/preview-heading-fold";
 import { renderDiagrams } from "../lib/diagram-renderers";
+import {
+  CODE_COPY_BUTTON_SELECTOR,
+  copyCodeBlockToClipboard,
+  enhanceCodeBlockCopy,
+} from "../lib/code-block-copy";
 import { NoteHoverPreview } from "./NoteHoverPreview";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu";
 
@@ -448,6 +453,16 @@ export const Preview = memo(function Preview({
     if (!root) return;
     const onClick = (e: MouseEvent): void => {
       const target = e.target as HTMLElement;
+      const copyButton = target.closest<HTMLButtonElement>(
+        CODE_COPY_BUTTON_SELECTOR,
+      );
+      if (copyButton) {
+        e.preventDefault();
+        e.stopPropagation();
+        copyCodeBlockToClipboard(copyButton);
+        return;
+      }
+
       const expandButton = target.closest(
         ".zen-diagram-expand",
       ) as HTMLButtonElement | null;
@@ -616,6 +631,7 @@ export const Preview = memo(function Preview({
     });
 
     enhancePreviewHeadingFolds(stage);
+    enhanceCodeBlockCopy(stage);
 
     stage
       .querySelectorAll<HTMLInputElement>('li.task-list-item input[type="checkbox"]')
