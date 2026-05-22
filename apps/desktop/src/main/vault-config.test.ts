@@ -22,6 +22,12 @@ const tempDirs: string[] = []
 const configFile = (): string => path.join(userDataDir, 'zennotes.config.json')
 const backupFile = (): string => `${configFile()}.bak`
 
+// `localVaults` entries go through `path.resolve()` in normalizePersistedConfig,
+// which on Windows turns `/Users/test/MyVault` into `D:\Users\test\MyVault`.
+// Resolve up front so expectations match across platforms.
+const VAULT_A = path.resolve('/Users/test/MyVault')
+const VAULT_B = path.resolve('/Users/test/AnotherVault')
+
 beforeEach(async () => {
   userDataDir = await mkdtemp(path.join(os.tmpdir(), 'zennotes-cfg-'))
   tempDirs.push(userDataDir)
@@ -35,8 +41,8 @@ describe('config persistence', () => {
   it('writes and reads back the same config', async () => {
     await saveConfig({
       workspaceMode: 'local',
-      vaultRoot: '/Users/test/MyVault',
-      localVaults: [{ root: '/Users/test/MyVault', name: 'MyVault', lastOpenedAt: 100 }],
+      vaultRoot: VAULT_A,
+      localVaults: [{ root: VAULT_A, name: 'MyVault', lastOpenedAt: 100 }],
       remoteWorkspace: null,
       remoteWorkspaceProfileId: null,
       remoteWorkspaceProfiles: [],
@@ -46,9 +52,9 @@ describe('config persistence', () => {
     })
 
     const cfg = await loadConfig()
-    expect(cfg.vaultRoot).toBe('/Users/test/MyVault')
+    expect(cfg.vaultRoot).toBe(VAULT_A)
     expect(cfg.localVaults).toHaveLength(1)
-    expect(cfg.localVaults[0]?.root).toBe('/Users/test/MyVault')
+    expect(cfg.localVaults[0]?.root).toBe(VAULT_A)
   })
 
   it('returns defaults on first run (no config file)', async () => {
@@ -60,8 +66,8 @@ describe('config persistence', () => {
   it('falls back to the backup when the primary file is corrupt', async () => {
     await saveConfig({
       workspaceMode: 'local',
-      vaultRoot: '/Users/test/MyVault',
-      localVaults: [{ root: '/Users/test/MyVault', name: 'MyVault', lastOpenedAt: 100 }],
+      vaultRoot: VAULT_A,
+      localVaults: [{ root: VAULT_A, name: 'MyVault', lastOpenedAt: 100 }],
       remoteWorkspace: null,
       remoteWorkspaceProfileId: null,
       remoteWorkspaceProfiles: [],
@@ -73,8 +79,8 @@ describe('config persistence', () => {
     // then the new payload replaces the primary.
     await saveConfig({
       workspaceMode: 'local',
-      vaultRoot: '/Users/test/AnotherVault',
-      localVaults: [{ root: '/Users/test/AnotherVault', name: 'AnotherVault', lastOpenedAt: 200 }],
+      vaultRoot: VAULT_B,
+      localVaults: [{ root: VAULT_B, name: 'AnotherVault', lastOpenedAt: 200 }],
       remoteWorkspace: null,
       remoteWorkspaceProfileId: null,
       remoteWorkspaceProfiles: [],
@@ -87,7 +93,7 @@ describe('config persistence', () => {
 
     const cfg = await loadConfig()
     // We recovered from the backup, which has the FIRST saved config.
-    expect(cfg.vaultRoot).toBe('/Users/test/MyVault')
+    expect(cfg.vaultRoot).toBe(VAULT_A)
   })
 
   it('refuses to clobber an unreadable primary when no backup exists', async () => {
@@ -111,8 +117,8 @@ describe('config persistence', () => {
     // re-read config many times. The vault path must survive.
     await saveConfig({
       workspaceMode: 'local',
-      vaultRoot: '/Users/test/MyVault',
-      localVaults: [{ root: '/Users/test/MyVault', name: 'MyVault', lastOpenedAt: 100 }],
+      vaultRoot: VAULT_A,
+      localVaults: [{ root: VAULT_A, name: 'MyVault', lastOpenedAt: 100 }],
       remoteWorkspace: null,
       remoteWorkspaceProfileId: null,
       remoteWorkspaceProfiles: [],
@@ -129,7 +135,7 @@ describe('config persistence', () => {
     }
 
     const cfg = await loadConfig()
-    expect(cfg.vaultRoot).toBe('/Users/test/MyVault')
+    expect(cfg.vaultRoot).toBe(VAULT_A)
     expect(cfg.localVaults).toHaveLength(1)
     expect(cfg.windowState).toEqual({ x: 40, y: 40, width: 1200, height: 800, isMaximized: false })
   })
@@ -140,7 +146,7 @@ describe('config persistence', () => {
     // configPath().
     await saveConfig({
       workspaceMode: 'local',
-      vaultRoot: '/Users/test/MyVault',
+      vaultRoot: VAULT_A,
       localVaults: [],
       remoteWorkspace: null,
       remoteWorkspaceProfileId: null,
@@ -156,7 +162,7 @@ describe('config persistence', () => {
   it('falls back to the backup when the primary is missing', async () => {
     await saveConfig({
       workspaceMode: 'local',
-      vaultRoot: '/Users/test/MyVault',
+      vaultRoot: VAULT_A,
       localVaults: [],
       remoteWorkspace: null,
       remoteWorkspaceProfileId: null,
@@ -167,7 +173,7 @@ describe('config persistence', () => {
     })
     await saveConfig({
       workspaceMode: 'local',
-      vaultRoot: '/Users/test/MyVault',
+      vaultRoot: VAULT_A,
       localVaults: [],
       remoteWorkspace: null,
       remoteWorkspaceProfileId: null,
@@ -180,7 +186,7 @@ describe('config persistence', () => {
     await rm(configFile())
 
     const cfg = await loadConfig()
-    expect(cfg.vaultRoot).toBe('/Users/test/MyVault')
+    expect(cfg.vaultRoot).toBe(VAULT_A)
   })
 
   it('does not throw when chmod denies reads (silently degrades to defaults)', async () => {
@@ -189,7 +195,7 @@ describe('config persistence', () => {
     if (process.platform === 'win32') return // chmod semantics differ on Windows
     await saveConfig({
       workspaceMode: 'local',
-      vaultRoot: '/Users/test/MyVault',
+      vaultRoot: VAULT_A,
       localVaults: [],
       remoteWorkspace: null,
       remoteWorkspaceProfileId: null,
@@ -212,8 +218,8 @@ describe('config persistence', () => {
     // Seed a valid primary so we have something to "lose".
     await saveConfig({
       workspaceMode: 'local',
-      vaultRoot: '/Users/test/MyVault',
-      localVaults: [{ root: '/Users/test/MyVault', name: 'MyVault', lastOpenedAt: 100 }],
+      vaultRoot: VAULT_A,
+      localVaults: [{ root: VAULT_A, name: 'MyVault', lastOpenedAt: 100 }],
       remoteWorkspace: null,
       remoteWorkspaceProfileId: null,
       remoteWorkspaceProfiles: [],
