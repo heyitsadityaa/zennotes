@@ -381,18 +381,86 @@ export function forgetLocalVault(
   return entries.filter((entry) => path.resolve(entry.root) !== target)
 }
 
-export async function loadConfig(): Promise<PersistedConfig> {
+function configBackupPath(): string {
+  return `${configPath()}.bak`
+}
+
+function isMissingFileError(err: unknown): boolean {
+  return !!err && typeof err === 'object' && (err as { code?: string }).code === 'ENOENT'
+}
+
+async function readConfigFile(target: string): Promise<PersistedConfig | null> {
   try {
-    const raw = await fs.readFile(configPath(), 'utf8')
-    return normalizePersistedConfig(JSON.parse(raw))
-  } catch {
-    return { ...DEFAULT_CONFIG }
+    const raw = await fs.readFile(target, 'utf8')
+    const trimmed = raw.trim()
+    if (!trimmed) return null
+    return normalizePersistedConfig(JSON.parse(trimmed))
+  } catch (err) {
+    if (isMissingFileError(err)) return null
+    throw err
   }
 }
 
-export async function saveConfig(cfg: PersistedConfig): Promise<void> {
+/** Internal: reads the persisted config and reports whether the bytes on
+ *  disk were actually readable. Distinguishes three states:
+ *  - `{ readable: true, config }`           — a valid config was read (primary or backup)
+ *  - `{ readable: true, config: defaults }` — neither file exists (first run)
+ *  - `{ readable: false }`                  — file exists but couldn't be parsed/read
+ *
+ *  `readable: false` is the dangerous state: returning defaults here lets a
+ *  subsequent `saveConfig` clobber the (recoverable) on-disk vault path. */
+async function loadConfigSafely(): Promise<
+  { readable: true; config: PersistedConfig } | { readable: false }
+> {
+  const target = configPath()
+  const backup = configBackupPath()
+  try {
+    const primary = await readConfigFile(target)
+    if (primary) return { readable: true, config: primary }
+  } catch (err) {
+    // Primary file exists but is unreadable/corrupt. Try the backup before
+    // giving up — losing settings is bad, losing the vault is worse.
+    console.error('Failed to read primary config; trying backup', err)
+    try {
+      const fromBackup = await readConfigFile(backup)
+      if (fromBackup) {
+        console.warn('Restored config from backup after primary read failure')
+        return { readable: true, config: fromBackup }
+      }
+    } catch (backupErr) {
+      console.error('Backup config also unreadable', backupErr)
+    }
+    return { readable: false }
+  }
+  // Primary missing or empty. Try backup as a last resort (e.g. crash mid-rename).
+  try {
+    const fromBackup = await readConfigFile(backup)
+    if (fromBackup) {
+      console.warn('Primary config missing; restored from backup')
+      return { readable: true, config: fromBackup }
+    }
+  } catch (backupErr) {
+    console.error('Backup config unreadable', backupErr)
+  }
+  return { readable: true, config: { ...DEFAULT_CONFIG } }
+}
+
+/** Reads the persisted config, returning defaults if nothing readable is on
+ *  disk. Read callers (createWindow, listLocalVaults, etc.) tolerate a stale
+ *  view of the config — only writes need the stricter contract enforced in
+ *  `updateConfig`. */
+export async function loadConfig(): Promise<PersistedConfig> {
+  const result = await loadConfigSafely()
+  if (result.readable) return result.config
+  // Unreadable: callers reading for display can fall back to defaults rather
+  // than crashing. Writes go through `updateConfig`, which uses
+  // `loadConfigSafely` directly and aborts instead of clobbering.
+  return { ...DEFAULT_CONFIG }
+}
+
+function sanitizeForPersist(cfg: PersistedConfig): PersistedConfig {
   const normalized = normalizePersistedConfig(cfg)
-  const sanitized: PersistedConfig = {
+  return {
     ...normalized,
     remoteWorkspace: normalized.remoteWorkspace
       ? {
@@ -407,8 +475,88 @@ export async function saveConfig(cfg: PersistedConfig): Promise<void> {
       lastConnectedAt: profile.lastConnectedAt
     }))
   }
-  await fs.mkdir(path.dirname(configPath()), { recursive: true })
-  await fs.writeFile(configPath(), JSON.stringify(sanitized, null, 2), 'utf8')
+}
+
+const CONFIG_TMP_SUFFIX_RE = /\.\d+\.\d+\.tmp$/
+
+/** Removes orphaned `<configPath>.<pid>.<ts>.tmp` files left behind when a
+ *  previous save was interrupted between `fs.open` and `fs.rename`. Best
+ *  effort — a missing parent dir or unreadable entries are not fatal. */
+async function cleanupStaleConfigTmpFiles(): Promise<void> {
+  const dir = path.dirname(configPath())
+  const prefix = `${path.basename(configPath())}.`
+  let entries: Dirent[]
+  try {
+    entries = await fs.readdir(dir, { withFileTypes: true })
+  } catch {
+    return
+  }
+  await Promise.all(
+    entries
+      .filter(
+        (entry) =>
+          entry.isFile() &&
+          entry.name.startsWith(prefix) &&
+          CONFIG_TMP_SUFFIX_RE.test(entry.name)
+      )
+      .map(async (entry) => {
+        try {
+          await fs.unlink(path.join(dir, entry.name))
+        } catch {
+          /* ignore */
+        }
+      })
+  )
+}
+
+/** Persists the config atomically: write to a temp file, fsync, then rename
+ *  over the live file. Before the rename, the previous live file is copied
+ *  to `<path>.bak` so a crash mid-rename can't strand the user without a
+ *  recoverable config. */
+export async function saveConfig(cfg: PersistedConfig): Promise<void> {
+  const sanitized = sanitizeForPersist(cfg)
+  const target = configPath()
+  const tmp = `${target}.${process.pid}.${Date.now()}.tmp`
+  const backup = configBackupPath()
+  const payload = JSON.stringify(sanitized, null, 2)
+  await fs.mkdir(path.dirname(target), { recursive: true })
+  await cleanupStaleConfigTmpFiles()
+
+  // Write + fsync the temp file so the bytes are on disk before we rename.
+  const handle = await fs.open(tmp, 'w')
+  try {
+    await handle.writeFile(payload, 'utf8')
+    try {
+      await handle.sync()
+    } catch (syncErr) {
+      // fsync isn't supported on every filesystem. Don't abort the save.
+      console.warn('fsync failed for config temp file', syncErr)
+    }
+  } finally {
+    await handle.close()
+  }
+
+  // Keep the previous good file as a backup before overwriting. Best-effort:
+  // missing primary just means there's nothing to back up yet.
+  try {
+    await fs.copyFile(target, backup)
+  } catch (err) {
+    if (!isMissingFileError(err)) {
+      console.warn('Failed to refresh config backup', err)
+    }
+  }
+
+  try {
+    await fs.rename(tmp, target)
+  } catch (err) {
+    // Rename failed — clean up the temp file so it doesn't accumulate.
+    try {
+      await fs.unlink(tmp)
+    } catch {
+      /* ignore */
+    }
+    throw err
+  }
 }
 
 export async function updateConfig(
@@ -418,11 +566,32 @@ export async function updateConfig(
   configWriteQueue = configWriteQueue
     .catch(() => {})
     .then(async () => {
-      const current = await loadConfig()
-      nextConfig = normalizePersistedConfig(await updater(current))
+      // If the existing config is on disk but unreadable, refuse to write —
+      // otherwise a transient read failure (or a half-written file from a
+      // crash) would clobber the user's vault path. The in-memory update
+      // is still returned so callers behave as expected this session; only
+      // persistence is skipped.
+      const result = await loadConfigSafely()
+      if (!result.readable) {
+        nextConfig = normalizePersistedConfig(await updater({ ...DEFAULT_CONFIG }))
+        throw new Error('Refusing to persist over unreadable config')
+      }
+      nextConfig = normalizePersistedConfig(await updater(result.config))
       await saveConfig(nextConfig)
     })
-  await configWriteQueue
+  try {
+    await configWriteQueue
+  } catch (err) {
+    // Don't propagate: a single failed write shouldn't crash the caller.
+    // The queue's own `.catch(() => {})` on the next call clears the
+    // rejection so subsequent writes can still proceed.
+    if (
+      !(err instanceof Error) ||
+      err.message !== 'Refusing to persist over unreadable config'
+    ) {
+      console.error('updateConfig failed', err)
+    }
+  }
   return nextConfig
 }
 
