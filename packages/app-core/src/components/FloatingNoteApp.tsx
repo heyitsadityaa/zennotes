@@ -218,6 +218,7 @@ export function FloatingNoteApp({ notePath }: { notePath: string }): JSX.Element
     let alive = true
     void window.zen.readNote(notePath).then((c) => {
       if (!alive) return
+      dirtyBodyRef.current = c.body
       setContent(c)
     })
     return () => {
@@ -240,6 +241,7 @@ export function FloatingNoteApp({ notePath }: { notePath: string }): JSX.Element
       // after the user has typed more characters.
       void window.zen.readNote(notePath).then((c) => {
         if (lastWrittenBodyRef.current === c.body) return
+        dirtyBodyRef.current = c.body
         setContent(c)
       })
     })
@@ -279,7 +281,11 @@ export function FloatingNoteApp({ notePath }: { notePath: string }): JSX.Element
       }
       if (viewRef.current) return
       const state = EditorState.create({
-        doc: content?.body ?? '',
+        // Read the live ref, not `content`: this callback's deps omit
+        // `content`, so its closure is stale after load. Using the ref
+        // keeps the current text when the editor remounts on edit/preview
+        // toggles (the `content` closure would recreate it empty).
+        doc: dirtyBodyRef.current ?? content?.body ?? '',
         extensions: [
           new Compartment().of(prefs.vimMode ? vim() : []),
           history(),

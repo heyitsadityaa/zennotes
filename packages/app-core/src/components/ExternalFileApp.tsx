@@ -48,7 +48,10 @@ export function ExternalFileApp(): JSX.Element {
   const [moveError, setMoveError] = useState<string | null>(null)
   const viewRef = useRef<EditorView | null>(null)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const dirtyBodyRef = useRef<string | null>(null)
+  // Source of truth for the body: seeded on load and updated on every
+  // edit. The editor is recreated on each edit/preview toggle, so it must
+  // re-seed from here — `content` is captured stale in setContainerRef.
+  const bodyRef = useRef<string | null>(null)
 
   // Apply theme + font vars before paint.
   useEffect(() => {
@@ -69,7 +72,7 @@ export function ExternalFileApp(): JSX.Element {
       .readExternalFile()
       .then((c) => {
         if (!alive) return
-        dirtyBodyRef.current = c.body
+        bodyRef.current = c.body
         setContent(c)
       })
       .catch((err) => {
@@ -99,7 +102,10 @@ export function ExternalFileApp(): JSX.Element {
       }
       if (viewRef.current) return
       const state = EditorState.create({
-        doc: content?.body ?? '',
+        // Read the live ref, not `content`: this callback's deps omit
+        // `content`, so its closure is stale (null) after load. Using the
+        // ref keeps the current text when the editor remounts on toggles.
+        doc: bodyRef.current ?? '',
         extensions: [
           new Compartment().of(prefs.vimMode ? vim() : []),
           history(),
@@ -118,13 +124,13 @@ export function ExternalFileApp(): JSX.Element {
             if (!upd.docChanged) return
             if (upd.transactions.some((tr: Transaction) => tr.annotation(programmatic))) return
             const next = upd.state.doc.toString()
-            dirtyBodyRef.current = next
+            bodyRef.current = next
             setDirty(true)
             setMoveError(null)
             if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
             saveTimerRef.current = setTimeout(() => {
               saveTimerRef.current = null
-              const body = dirtyBodyRef.current
+              const body = bodyRef.current
               if (body != null) void persist(body)
             }, SAVE_DEBOUNCE_MS)
           })
@@ -153,7 +159,7 @@ export function ExternalFileApp(): JSX.Element {
       if (saveTimerRef.current) {
         clearTimeout(saveTimerRef.current)
         saveTimerRef.current = null
-        const body = dirtyBodyRef.current
+        const body = bodyRef.current
         if (body != null) void persist(body)
       }
     }
@@ -175,7 +181,7 @@ export function ExternalFileApp(): JSX.Element {
   }, [])
 
   const currentBody = useCallback((): string => {
-    return viewRef.current?.state.doc.toString() ?? dirtyBodyRef.current ?? content?.body ?? ''
+    return viewRef.current?.state.doc.toString() ?? bodyRef.current ?? content?.body ?? ''
   }, [content])
 
   const moveToVault = useCallback(async () => {
