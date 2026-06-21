@@ -154,6 +154,7 @@ import {
 import { recordMainPerf } from './perf'
 import {
   parseOpenNoteDeepLink,
+  parseQuickCaptureDeepLink,
   ZENNOTES_DEEP_LINK_SCHEME
 } from './deep-links'
 import {
@@ -326,20 +327,29 @@ async function flushPendingFloatingNoteRequests(): Promise<void> {
   }
 }
 
-function handleExternalOpenUrl(rawUrl: string): boolean {
+type ExternalOpenUrlResult = 'none' | 'note' | 'quick-capture'
+
+function handleExternalOpenUrl(rawUrl: string): ExternalOpenUrlResult {
+  if (parseQuickCaptureDeepLink(rawUrl)) {
+    void toggleQuickCaptureWindow()
+    return 'quick-capture'
+  }
   const request = parseOpenNoteDeepLink(rawUrl)
-  if (!request) return false
+  if (!request) return 'none'
   if (request.target === 'window') queueFloatingNoteRequest(request.path)
   else queueOpenNoteRequest(request.path)
-  return true
+  return 'note'
 }
 
-function handleStartupDeepLinks(argv: string[]): void {
+function handleStartupDeepLinks(argv: string[]): ExternalOpenUrlResult {
+  let result: ExternalOpenUrlResult = 'none'
   for (const arg of argv) {
     if (arg.startsWith(`${ZENNOTES_DEEP_LINK_SCHEME}:`)) {
-      handleExternalOpenUrl(arg)
+      const next = handleExternalOpenUrl(arg)
+      if (next !== 'none') result = next
     }
   }
+  return result
 }
 
 function focusWindow(win: BrowserWindow): void {
@@ -2621,7 +2631,7 @@ function registerIpc(): void {
   })
 
   handle(IPC.WINDOW_TOGGLE_QUICK_CAPTURE, async () => {
-    toggleQuickCaptureWindow()
+    await toggleQuickCaptureWindow()
   })
 
   handle(IPC.APP_GET_QUICK_CAPTURE_HOTKEY, async () => {
@@ -2787,7 +2797,7 @@ let registeredQuickCaptureHotkey: string | null = null
  *  auto-hide on blur. Mirrors PersistedConfig.quickCapturePinned. */
 let quickCapturePinned = false
 
-function ensureQuickCaptureWindow(): BrowserWindow {
+async function ensureQuickCaptureWindow(): Promise<BrowserWindow> {
   if (quickCaptureWindow && !quickCaptureWindow.isDestroyed()) return quickCaptureWindow
   const mac = isMac()
   const sourceWindow = BrowserWindow.getFocusedWindow() ?? mainWindow
@@ -2850,6 +2860,10 @@ function ensureQuickCaptureWindow(): BrowserWindow {
   applyZoomFactor(win, currentZoomFactor)
   if (sourceWindow && !sourceWindow.isDestroyed()) {
     inheritWindowWorkspaceSession(sourceWindow, win)
+  } else {
+    await ipcWindowContext.run(win, async () => {
+      await loadCurrentVaultFromConfig()
+    })
   }
 
   const params = '?quickCapture=1'
@@ -2874,8 +2888,8 @@ function applyQuickCapturePinned(): void {
   win.setAlwaysOnTop(true, quickCapturePinned ? 'screen-saver' : 'floating')
 }
 
-function showQuickCaptureWindow(): void {
-  const win = ensureQuickCaptureWindow()
+async function showQuickCaptureWindow(): Promise<void> {
+  const win = await ensureQuickCaptureWindow()
   const sourceWindow = BrowserWindow.getFocusedWindow() ?? mainWindow
   if (sourceWindow && sourceWindow.id !== win.id && !sourceWindow.isDestroyed()) {
     inheritWindowWorkspaceSession(sourceWindow, win)
@@ -2884,13 +2898,13 @@ function showQuickCaptureWindow(): void {
   win.focus()
 }
 
-function toggleQuickCaptureWindow(): void {
+async function toggleQuickCaptureWindow(): Promise<void> {
   const win = quickCaptureWindow
   if (win && !win.isDestroyed() && win.isVisible() && win.isFocused()) {
     win.hide()
     return
   }
-  showQuickCaptureWindow()
+  await showQuickCaptureWindow()
 }
 
 function unregisterQuickCaptureHotkey(): void {
@@ -2908,11 +2922,18 @@ function registerQuickCaptureHotkey(hotkey: string): { ok: boolean; error?: stri
   const trimmed = hotkey.trim()
   if (!trimmed) return { ok: true }
   try {
-    const ok = globalShortcut.register(trimmed, toggleQuickCaptureWindow)
+    const ok = globalShortcut.register(trimmed, () => {
+      console.info(`[zen:quick-capture] hotkey pressed: ${trimmed}`)
+      void toggleQuickCaptureWindow()
+    })
     if (!ok) {
       return { ok: false, error: `Failed to register quick capture hotkey: ${trimmed}` }
     }
+    if (!globalShortcut.isRegistered(trimmed)) {
+      return { ok: false, error: `Quick capture hotkey was not registered by the system: ${trimmed}` }
+    }
     registeredQuickCaptureHotkey = trimmed
+    console.info(`[zen:quick-capture] registered hotkey: ${trimmed}`)
     return { ok: true }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
@@ -3171,6 +3192,10 @@ async function runMenuUpdateCheck(): Promise<void> {
 // before `app.whenReady()`.
 if (process.platform === 'linux') {
   app.commandLine.appendSwitch('disable-features', 'VaapiVideoDecoder,VaapiVideoEncoder')
+  // Wayland compositors (including Hyprland/Omarchy) expose global shortcuts
+  // through xdg-desktop-portal, but Electron only wires that path when this
+  // Chromium feature is enabled before app.whenReady().
+  app.commandLine.appendSwitch('enable-features', 'GlobalShortcutsPortal')
 }
 
 app.whenReady().then(async () => {
@@ -3244,14 +3269,14 @@ app.whenReady().then(async () => {
   registerIpc()
   initAppUpdater()
   registerAppDeepLinkProtocol()
-  handleStartupDeepLinks(process.argv)
+  const startupDeepLinkResult = handleStartupDeepLinks(process.argv)
   handleStartupMarkdownArgs(process.argv, true)
 
   // Honor a file ZenNotes was launched to open before falling back to a
   // default-vault window, so double-clicking a .md doesn't also pop an
   // unrelated window.
   const openedFromFile = await flushPendingFileOpens()
-  if (!openedFromFile) {
+  if (!openedFromFile && startupDeepLinkResult !== 'quick-capture') {
     await ensureMainWindow()
   }
   void flushPendingFloatingNoteRequests()
@@ -3289,7 +3314,7 @@ app.whenReady().then(async () => {
 
 app.on('open-url', (event, url) => {
   event.preventDefault()
-  if (!handleExternalOpenUrl(url)) {
+  if (handleExternalOpenUrl(url) === 'none') {
     console.warn(`Ignoring unsupported ${ZENNOTES_DEEP_LINK_SCHEME} URL: ${url}`)
   }
 })
@@ -3307,9 +3332,14 @@ app.on('open-file', (event, filePath) => {
 // already running) forwards its argv here instead of starting a second
 // process.
 app.on('second-instance', (_event, argv) => {
-  handleStartupDeepLinks(argv)
+  const deepLinkResult = handleStartupDeepLinks(argv)
   handleStartupMarkdownArgs(argv, false)
-  if (mainWindow && !mainWindow.isDestroyed()) focusWindow(mainWindow)
+  if (deepLinkResult === 'quick-capture') return
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    focusWindow(mainWindow)
+    return
+  }
+  void ensureMainWindow()
 })
 
 app.on('window-all-closed', () => {
