@@ -25,7 +25,13 @@ All desktop installers are attached to each [GitHub Release](https://github.com/
 
 ### macOS
 
-Download the `.dmg` for your chip, open it, and drag **ZenNotes** to Applications. Builds are signed and notarized.
+**Homebrew (recommended):**
+
+```sh
+brew install --cask zennotes/tap/zennotes
+```
+
+Or download the `.dmg` for your chip, open it, and drag **ZenNotes** to Applications. Builds are signed and notarized.
 
 - Apple Silicon: `ZenNotes-<version>-mac-arm64.dmg`
 - Intel: `ZenNotes-<version>-mac-x64.dmg`
