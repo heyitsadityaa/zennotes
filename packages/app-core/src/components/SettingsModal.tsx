@@ -522,6 +522,7 @@ export function SettingsModal(): JSX.Element {
       { id: 'one', label: 'One' },
       { id: 'nord', label: 'Nord' },
       { id: 'tokyo-night', label: 'Tokyo Night' },
+      { id: 'kanagawa', label: 'Kanagawa' },
       { id: 'black-metal', label: 'Black Metal' }
     ],
     []
@@ -602,6 +603,7 @@ export function SettingsModal(): JSX.Element {
       one: { light: 'one-light', dark: 'one-dark' },
       nord: { light: 'nord-light', dark: 'nord-dark' },
       'tokyo-night': { light: 'tokyo-night-day', dark: 'tokyo-night-storm' },
+      kanagawa: { light: 'kanagawa-lotus', dark: 'kanagawa-wave' },
       'black-metal': { light: 'black-metal-day', dark: 'black-metal' }
     }
     const targetId = preferred[family][effectiveMode]

@@ -170,7 +170,9 @@ const VALID_FAMILIES: ThemeFamily[] = [
   'solarized',
   'one',
   'nord',
-  'tokyo-night'
+  'tokyo-night',
+  'kanagawa',
+  'black-metal'
 ]
 const VALID_MODES: ThemeMode[] = ['light', 'dark', 'auto']
 const VALID_SORTS: NoteSortOrder[] = [

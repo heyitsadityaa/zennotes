@@ -336,6 +336,8 @@
 :root[data-theme="one-dark"],
 :root[data-theme="nord-dark"],
 :root[data-theme="tokyo-night-storm"],
+:root[data-theme="kanagawa-wave"],
+:root[data-theme="kanagawa-dragon"],
 :root[data-theme="black-metal"] {
   --z-glass-a1: 0.58;
   --z-glass-a2: 0.46;
@@ -966,6 +968,96 @@
   --z-purple: 187 154 247; /* magenta    #bb9af7 */
   --z-aqua: 125 207 255; /* cyan       #7dcfff */
   --z-shadow: 0 0 0;
+}
+
+/* ===========================================================================
+ * Kanagawa — https://github.com/rebelot/kanagawa.nvim
+ * Inspired by Hokusai's "The Great Wave off Kanagawa". Wave (warm default
+ * dark), Dragon (darker, cooler dark), Lotus (light). Official palettes.
+ * ======================================================================== */
+
+/* ---- Wave (dark — the default) ------------------------------------- */
+:root[data-theme="kanagawa-wave"] {
+  color-scheme: dark;
+  --z-bg: 31 31 40; /* sumiInk3   #1f1f28 */
+  --z-bg-softer: 24 24 32; /* sumiInk1   #181820 */
+  --z-bg-1: 22 22 29; /* sumiInk0   #16161d */
+  --z-bg-2: 42 42 55; /* sumiInk4   #2a2a37 */
+  --z-bg-3: 54 54 70; /* sumiInk5   #363646 */
+  --z-bg-4: 84 84 109; /* sumiInk6   #54546d */
+  --z-fg: 220 215 186; /* fujiWhite  #dcd7ba */
+  --z-fg-1: 200 192 147; /* oldWhite   #c8c093 */
+  --z-fg-2: 166 160 138; /* dim parchment */
+  --z-grey-2: 142 138 120;
+  --z-grey-1: 114 113 105; /* fujiGray   #727169 */
+  --z-grey-0: 84 84 109; /* sumiInk6   #54546d */
+  --z-grey-dim: 54 54 70;
+  --z-accent: 126 156 216; /* crystalBlue #7e9cd8 — iconic */
+  --z-accent-soft: 230 195 132; /* carpYellow  #e6c384 */
+  --z-accent-muted: 152 187 108; /* springGreen #98bb6c */
+  --z-red: 228 104 118; /* waveRed     #e46876 */
+  --z-green: 152 187 108;
+  --z-yellow: 230 195 132;
+  --z-blue: 126 156 216;
+  --z-purple: 149 127 184; /* oniViolet   #957fb8 */
+  --z-aqua: 122 168 159; /* waveAqua2   #7aa89f */
+  --z-shadow: 0 0 0;
+}
+
+/* ---- Dragon (dark — darker, cooler) -------------------------------- */
+:root[data-theme="kanagawa-dragon"] {
+  color-scheme: dark;
+  --z-bg: 24 22 22; /* dragonBlack3 #181616 */
+  --z-bg-softer: 18 18 15; /* dragonBlack1 #12120f */
+  --z-bg-1: 13 12 12; /* dragonBlack0 #0d0c0c */
+  --z-bg-2: 40 39 39; /* dragonBlack4 #282727 */
+  --z-bg-3: 57 56 54; /* dragonBlack5 #393836 */
+  --z-bg-4: 98 94 90; /* dragonBlack6 #625e5a */
+  --z-fg: 197 201 197; /* dragonWhite  #c5c9c5 */
+  --z-fg-1: 166 166 156; /* dragonGray   #a6a69c */
+  --z-fg-2: 158 155 147; /* dragonGray2  #9e9b93 */
+  --z-grey-2: 122 131 130; /* dragonGray3  #7a8382 */
+  --z-grey-1: 115 124 115; /* dragonAsh    #737c73 */
+  --z-grey-0: 98 94 90;
+  --z-grey-dim: 57 56 54;
+  --z-accent: 139 164 176; /* dragonBlue2  #8ba4b0 */
+  --z-accent-soft: 196 178 138; /* dragonYellow #c4b28a */
+  --z-accent-muted: 135 169 135; /* dragonGreen  #87a987 */
+  --z-red: 196 116 110; /* dragonRed    #c4746e */
+  --z-green: 135 169 135;
+  --z-yellow: 196 178 138;
+  --z-blue: 139 164 176;
+  --z-purple: 162 146 163; /* dragonPink   #a292a3 */
+  --z-aqua: 142 164 162; /* dragonAqua   #8ea4a2 */
+  --z-shadow: 0 0 0;
+}
+
+/* ---- Lotus (light) ------------------------------------------------- */
+:root[data-theme="kanagawa-lotus"] {
+  color-scheme: light;
+  --z-bg: 242 236 188; /* lotusWhite3  #f2ecbc */
+  --z-bg-softer: 229 221 176; /* lotusWhite2  #e5ddb0 */
+  --z-bg-1: 220 213 172; /* lotusWhite1  #dcd5ac */
+  --z-bg-2: 213 206 163; /* lotusWhite0  #d5cea3 */
+  --z-bg-3: 201 193 148; /* darker parchment */
+  --z-bg-4: 185 177 135; /* darker parchment */
+  --z-fg: 84 84 100; /* lotusInk1    #545464 */
+  --z-fg-1: 67 67 108; /* lotusInk2    #43436c */
+  --z-fg-2: 110 106 94; /* dim warm */
+  --z-grey-2: 113 110 97; /* lotusGray2   #716e61 */
+  --z-grey-1: 138 137 128; /* lotusGray3   #8a8980 */
+  --z-grey-0: 160 156 172; /* lotusViolet1 #a09cac */
+  --z-grey-dim: 201 193 148;
+  --z-accent: 77 105 155; /* lotusBlue4   #4d699b */
+  --z-accent-soft: 204 109 0; /* lotusOrange  #cc6d00 */
+  --z-accent-muted: 110 145 95; /* lotusGreen2  #6e915f */
+  --z-red: 200 64 83; /* lotusRed     #c84053 */
+  --z-green: 110 145 95;
+  --z-yellow: 222 154 0; /* lotusYellow3 #de9a00 */
+  --z-blue: 77 105 155;
+  --z-purple: 98 76 131; /* lotusViolet4 #624c83 */
+  --z-aqua: 94 133 122; /* lotusAqua2   #5e857a */
+  --z-shadow: 87 82 64;
 }
 
 /* ===========================================================================
