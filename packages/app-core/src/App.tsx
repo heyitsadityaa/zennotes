@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useRef } from 'react'
-import { useStore } from './store'
+import { useStore, initConfigSync } from './store'
 import { resolveAuto } from './lib/themes'
 import { Sidebar } from './components/Sidebar'
 import { NoteList } from './components/NoteList'
@@ -318,6 +318,12 @@ function App(): JSX.Element {
 
   useEffect(() => {
     window.zen.notifyRendererReady()
+  }, [])
+
+  // Mirror portable prefs to the plain-text config file and pick up external
+  // edits (synced dotfile / hand-edit). Desktop-only; a no-op on web.
+  useEffect(() => {
+    initConfigSync()
   }, [])
 
   // Drag a markdown file from the OS onto the window to open it. Desktop

@@ -11,6 +11,7 @@ import type {
   WriteTemplateInput
 } from '@zennotes/bridge-contract/templates'
 import { IPC } from '@shared/ipc'
+import type { AppConfigPortable } from '@shared/app-config'
 import type {
   AppUpdateState,
   AssetMeta,
@@ -485,7 +486,24 @@ const api: ZenBridge = {
   raycastInstall: (): Promise<RaycastExtensionStatus> =>
     ipcRenderer.invoke(IPC.RAYCAST_INSTALL),
   clipboardWriteText: (text: string): void => clipboard.writeText(text),
-  clipboardReadText: (): string => clipboard.readText()
+  clipboardReadText: (): string => clipboard.readText(),
+
+  getConfigSync: (): AppConfigPortable | null => {
+    try {
+      return ipcRenderer.sendSync(IPC.CONFIG_GET_SYNC) as AppConfigPortable | null
+    } catch {
+      return null
+    }
+  },
+  setConfig: (next: AppConfigPortable): Promise<void> =>
+    ipcRenderer.invoke(IPC.CONFIG_SET, next),
+  getConfigPath: (): Promise<string | null> => ipcRenderer.invoke(IPC.CONFIG_GET_PATH),
+  revealConfigFile: (): Promise<void> => ipcRenderer.invoke(IPC.CONFIG_REVEAL),
+  onConfigChange: (cb: (next: AppConfigPortable) => void): (() => void) => {
+    const listener = (_: unknown, next: AppConfigPortable): void => cb(next)
+    ipcRenderer.on(IPC.CONFIG_ON_CHANGE, listener)
+    return () => ipcRenderer.removeListener(IPC.CONFIG_ON_CHANGE, listener)
+  }
 }
 
 export type ZenApi = ZenBridge

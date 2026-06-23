@@ -42,6 +42,8 @@ import {
   history,
   historyKeymap,
   indentWithTab,
+  moveLineDown,
+  moveLineUp,
   redo,
   selectAll,
   undo
@@ -212,7 +214,13 @@ import {
   isDiagramTabPath
 } from '../lib/diagram-tabs'
 import { classifyLocalAssetHref } from '../lib/local-assets'
-import { formatKeyToken, getKeymapDisplay, type KeymapId } from '../lib/keymaps'
+import {
+  formatKeyToken,
+  getKeymapBinding,
+  getKeymapDisplay,
+  type KeymapId,
+  type KeymapOverrides
+} from '../lib/keymaps'
 import { isTabStripOverflowing } from '../lib/tab-strip-overflow'
 
 const MODE_OPTIONS: Array<{
@@ -235,10 +243,21 @@ const LARGE_DOC_LIVE_PREVIEW_DEFER_CHARS = 120_000
 const LARGE_DOC_LIVE_PREVIEW_DEFER_MS = 3_000
 const LARGE_DOC_EDITOR_HYDRATE_DELAY_MS = 180
 
+/** Convert a ZenNotes binding string ("Alt+ArrowUp", "Mod+K") to a CodeMirror
+ *  key string ("Alt-ArrowUp", "Mod-k"). */
+function toCmKey(binding: string): string {
+  const parts = binding.split('+')
+  const base = parts.pop() ?? ''
+  const mods = parts.join('-')
+  const baseOut = base.length === 1 ? base.toLowerCase() : base
+  return mods ? `${mods}-${baseOut}` : baseOut
+}
+
 // The editor keymap depends on Vim mode: in Vim mode the macOS emacs-style
 // chords are stripped from `defaultKeymap` so Vim's `<C-d>` & co. work (see
-// cm-vim-default-keymap). Built behind a compartment and reconfigured on toggle.
-function buildEditorKeymap(vimMode: boolean): Extension {
+// cm-vim-default-keymap). Built behind a compartment and reconfigured on Vim
+// toggle or keymap-override changes.
+function buildEditorKeymap(vimMode: boolean, overrides: KeymapOverrides): Extension {
   return keymap.of([
     {
       key: 'Mod-f',
@@ -249,6 +268,11 @@ function buildEditorKeymap(vimMode: boolean): Extension {
         return true
       }
     },
+    // Move the current line (or selection) up/down — reorders the markdown so
+    // it persists in the file. Listed before defaultKeymap so the configured
+    // binding wins; works in Vim normal/insert and non-Vim alike.
+    { key: toCmKey(getKeymapBinding(overrides, 'editor.moveLineUp')), run: moveLineUp },
+    { key: toCmKey(getKeymapBinding(overrides, 'editor.moveLineDown')), run: moveLineDown },
     indentWithTab,
     ...vimAwareDefaultKeymap(vimMode),
     ...historyKeymap,
@@ -286,12 +310,13 @@ function markdownSyntaxHighlightExtensions(): Extension[] {
  * frontmatter-properties panel is intentionally excluded — it depends on
  * the PR's breaking database restructure.
  */
-function wysiwygExtensions(): Extension[] {
+function wysiwygExtensions(renderTables: boolean): Extension[] {
   return [
     livePreviewPlugin,
     codeBlockFlairPlugin,
-    tablePlugin,
-    tableVimEntry,
+    // Table widgets are gated on a setting — off keeps tables as plain editable
+    // markdown for full keyboard/Vim editing (#232).
+    ...(renderTables ? [tablePlugin, tableVimEntry] : []),
     wysiwygBlocksPlugin,
     ...hashtagExtension,
     ...highlightExtension,
@@ -690,6 +715,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const vimMode = useStore((s) => s.vimMode)
   const vimYankToClipboard = useStore((s) => s.vimYankToClipboard)
   const livePreview = useStore((s) => s.livePreview)
+  const renderTablesInLivePreview = useStore((s) => s.renderTablesInLivePreview)
   const editorFontSize = useStore((s) => s.editorFontSize)
   const editorLineHeight = useStore((s) => s.editorLineHeight)
   const lineNumberMode = useStore((s) => s.lineNumberMode)
@@ -1439,7 +1465,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             deferInitialRichMarkdown ? [] : markdownSyntaxHighlightExtensions()
           ),
           livePreviewCompartment.of(
-            s0.livePreview && !deferInitialRichMarkdown ? wysiwygExtensions() : []
+            s0.livePreview && !deferInitialRichMarkdown
+              ? wysiwygExtensions(s0.renderTablesInLivePreview)
+              : []
           ),
           lineNumbersCompartment.of(lineNumberExtension(s0.lineNumberMode)),
           tooltips({ parent: document.body }),
@@ -1453,7 +1481,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
                 : 'slash-cmd-option'
           }),
           completionNavKeymap,
-          editorKeymapCompartment.of(buildEditorKeymap(s0.vimMode)),
+          editorKeymapCompartment.of(buildEditorKeymap(s0.vimMode, s0.keymapOverrides)),
           EditorView.domEventHandlers({
             mousedown: (event, view) => {
               const target = event.target as HTMLElement | null
@@ -1593,7 +1621,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             markdownSyntaxCompartment.reconfigure(markdownSyntaxHighlightExtensions())
           ]
           if (useStore.getState().livePreview) {
-            restoreEffects.push(livePreviewCompartment.reconfigure(wysiwygExtensions()))
+            restoreEffects.push(livePreviewCompartment.reconfigure(wysiwygExtensions(useStore.getState().renderTablesInLivePreview)))
           }
           view.dispatch({ effects: restoreEffects })
         }, LARGE_DOC_LIVE_PREVIEW_DEFER_MS)
@@ -1685,7 +1713,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         markdownSyntaxCompartment.reconfigure(markdownSyntaxHighlightExtensions())
       )
       if (livePreviewEnabled && livePreviewCompartment) {
-        effects.push(livePreviewCompartment.reconfigure(wysiwygExtensions()))
+        effects.push(livePreviewCompartment.reconfigure(wysiwygExtensions(useStore.getState().renderTablesInLivePreview)))
       }
     }
     const dispatchStartedAt = performance.now()
@@ -1732,7 +1760,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           markdownSyntaxCompartment.reconfigure(markdownSyntaxHighlightExtensions())
         ]
         if (useStore.getState().livePreview && livePreviewCompartment) {
-          restoreEffects.push(livePreviewCompartment.reconfigure(wysiwygExtensions()))
+          restoreEffects.push(livePreviewCompartment.reconfigure(wysiwygExtensions(useStore.getState().renderTablesInLivePreview)))
         }
         view.dispatch({
           effects: restoreEffects
@@ -1764,9 +1792,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     if (!view || !comp) return
     const effects = [comp.reconfigure(vimMode ? vim() : [])]
     const keymapComp = editorKeymapCompartmentRef.current
-    if (keymapComp) effects.push(keymapComp.reconfigure(buildEditorKeymap(vimMode)))
+    if (keymapComp) effects.push(keymapComp.reconfigure(buildEditorKeymap(vimMode, tabNavOverrides)))
     view.dispatch({ effects })
-  }, [vimMode])
+  }, [vimMode, tabNavOverrides])
   useEffect(() => {
     const view = viewRef.current
     const comp = livePreviewCompartmentRef.current
@@ -1787,13 +1815,13 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             markdownSyntaxCompartment.reconfigure(markdownSyntaxHighlightExtensions())
           )
         }
-        effects.push(comp.reconfigure(wysiwygExtensions()))
+        effects.push(comp.reconfigure(wysiwygExtensions(useStore.getState().renderTablesInLivePreview)))
         view.dispatch({ effects })
       }
       return
     }
-    view.dispatch({ effects: comp.reconfigure(livePreview ? wysiwygExtensions() : []) })
-  }, [livePreview])
+    view.dispatch({ effects: comp.reconfigure(livePreview ? wysiwygExtensions(useStore.getState().renderTablesInLivePreview) : []) })
+  }, [livePreview, renderTablesInLivePreview])
   useEffect(() => {
     const view = viewRef.current
     const comp = lineNumbersCompartmentRef.current

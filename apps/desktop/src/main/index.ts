@@ -95,6 +95,14 @@ import {
   writeNote
 } from './vault'
 import {
+  initAppConfig,
+  getPortableConfigSnapshot,
+  setPortableConfig,
+  getConfigFilePath,
+  ensureConfigFile
+} from './app-config'
+import type { AppConfigPortable } from '@shared/app-config'
+import {
   listCustomTemplates,
   readCustomTemplate,
   writeCustomTemplate,
@@ -2699,6 +2707,35 @@ function registerIpc(): void {
   handle(IPC.CLI_UNINSTALL, async () => await uninstallCli())
   handle(IPC.RAYCAST_GET_STATUS, async () => await getRaycastExtensionStatus())
   handle(IPC.RAYCAST_INSTALL, async () => await installRaycastExtension())
+
+  // Synchronous getter so the preload can hydrate the renderer's prefs store
+  // at startup without an async round-trip. Registered directly (not via the
+  // `on` helper) because it must set `event.returnValue` and doesn't need the
+  // window async-context the helper establishes.
+  ipcMain.on(IPC.CONFIG_GET_SYNC, (event) => {
+    try {
+      assertTrustedIpcEvent(event)
+      event.returnValue = getPortableConfigSnapshot()
+    } catch {
+      event.returnValue = null
+    }
+  })
+  handle(IPC.CONFIG_SET, async (_event, next: AppConfigPortable) => {
+    await setPortableConfig(next ?? {})
+  })
+  handle(IPC.CONFIG_GET_PATH, () => getConfigFilePath())
+  handle(IPC.CONFIG_REVEAL, async () => {
+    const file = await ensureConfigFile()
+    shell.showItemInFolder(file)
+  })
+}
+
+/** Push an externally-changed config (synced dotfile / hand-edit) to every
+ *  open renderer so live-reload applies it without a restart. */
+function broadcastConfigChange(next: AppConfigPortable): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) win.webContents.send(IPC.CONFIG_ON_CHANGE, next)
+  }
 }
 
 /**
@@ -3264,6 +3301,10 @@ app.whenReady().then(async () => {
       console.error('Failed to set dock icon', err)
     }
   }
+
+  // Load the portable config from disk before any window opens so the
+  // preload's synchronous getConfigSync() returns real data on first paint.
+  await initAppConfig(broadcastConfigChange)
 
   installAppMenu()
   registerIpc()
