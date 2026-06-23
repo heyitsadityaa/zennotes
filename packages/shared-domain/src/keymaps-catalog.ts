@@ -91,6 +91,8 @@ export const KEYMAP_CATALOG: KeymapCatalogEntry[] = [
   { id: "vim.unfoldAll", group: "vim", defaultBinding: "z R", title: "Unfold all headings" },
   { id: "nav.moveDown", group: "navigation", defaultBinding: "j", title: "Move selection down" },
   { id: "nav.moveUp", group: "navigation", defaultBinding: "k", title: "Move selection up" },
+  { id: "nav.moveLeft", group: "navigation", defaultBinding: "h", title: "Move selection left" },
+  { id: "nav.moveRight", group: "navigation", defaultBinding: "l", title: "Move selection right" },
   { id: "nav.jumpTop", group: "navigation", defaultBinding: "g g", title: "Jump to top" },
   { id: "nav.jumpBottom", group: "navigation", defaultBinding: "G", title: "Jump to bottom" },
   { id: "nav.halfPageDown", group: "view-actions", defaultBinding: "Ctrl+D", title: "Half-page down" },

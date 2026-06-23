@@ -35,6 +35,7 @@ import { renderMarkdown } from './markdown'
 import { getCM } from '@replit/codemirror-vim'
 import { undo, redo } from '@codemirror/commands'
 import { useStore } from '../store'
+import { matchesSequenceToken } from './keymaps'
 
 /** True when the editor is in Vim mode — gates the table's modal (normal /
  *  insert) keyboard navigation. With Vim off, cells stay plain contenteditable
@@ -534,27 +535,35 @@ class TableWidget extends WidgetType {
           this.applyOperator(editable, op, event.key, cellText)
           return
         }
+        // Directional cell navigation. Honors the configurable nav keymaps
+        // (defaults h/l/j/k) so non-QWERTY layouts can remap them (#213), and
+        // arrow keys always work (#232). Only plain navigation is remappable —
+        // the Vim motions/operators in the switch below stay standard Vim.
+        const navOverrides = useStore.getState().keymapOverrides
+        if (event.key === 'ArrowLeft' || matchesSequenceToken(event, navOverrides, 'nav.moveLeft')) {
+          event.preventDefault()
+          this.moveCharLeft(editable, row, col)
+          return
+        }
+        if (
+          event.key === 'ArrowRight' ||
+          matchesSequenceToken(event, navOverrides, 'nav.moveRight')
+        ) {
+          event.preventDefault()
+          this.moveCharRight(editable, row, col)
+          return
+        }
+        if (event.key === 'ArrowDown' || matchesSequenceToken(event, navOverrides, 'nav.moveDown')) {
+          event.preventDefault()
+          this.moveRowDown(row, col)
+          return
+        }
+        if (event.key === 'ArrowUp' || matchesSequenceToken(event, navOverrides, 'nav.moveUp')) {
+          event.preventDefault()
+          this.moveRowUp(row, col)
+          return
+        }
         switch (event.key) {
-          case 'ArrowLeft':
-          case 'h':
-            event.preventDefault()
-            this.moveCharLeft(editable, row, col)
-            return
-          case 'ArrowRight':
-          case 'l':
-            event.preventDefault()
-            this.moveCharRight(editable, row, col)
-            return
-          case 'ArrowDown':
-          case 'j':
-            event.preventDefault()
-            this.moveRowDown(row, col)
-            return
-          case 'ArrowUp':
-          case 'k':
-            event.preventDefault()
-            this.moveRowUp(row, col)
-            return
           case 'i':
             event.preventDefault()
             this.enterInsertMode(editable, this.cursorOffset)
@@ -1388,8 +1397,10 @@ export const tableVimEntry = Prec.highest(
   EditorView.domEventHandlers({
     keydown(event, view) {
       if (!vimEnabled()) return false
-      const down = event.key === 'j' || event.key === 'ArrowDown'
-      const up = event.key === 'k' || event.key === 'ArrowUp'
+      const navOverrides = useStore.getState().keymapOverrides
+      const down =
+        event.key === 'ArrowDown' || matchesSequenceToken(event, navOverrides, 'nav.moveDown')
+      const up = event.key === 'ArrowUp' || matchesSequenceToken(event, navOverrides, 'nav.moveUp')
       if (!down && !up) return false
       if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return false
       // Keys from inside a table widget are the widget's own cell navigation —

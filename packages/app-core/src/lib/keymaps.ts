@@ -74,6 +74,8 @@ export type KeymapId =
   | "vim.unfoldAll"
   | "nav.moveDown"
   | "nav.moveUp"
+  | "nav.moveLeft"
+  | "nav.moveRight"
   | "nav.jumpTop"
   | "nav.jumpBottom"
   | "nav.halfPageDown"
@@ -772,6 +774,26 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     title: "Move selection up",
     description: "Move the current row cursor or panel selection up.",
     defaultBinding: "k",
+    maxTokens: 1,
+  },
+  {
+    id: "nav.moveLeft",
+    kind: "sequence",
+    scope: "lists",
+    group: "navigation",
+    title: "Move selection left",
+    description: "Move left between cells in a WYSIWYG table (and within cell text).",
+    defaultBinding: "h",
+    maxTokens: 1,
+  },
+  {
+    id: "nav.moveRight",
+    kind: "sequence",
+    scope: "lists",
+    group: "navigation",
+    title: "Move selection right",
+    description: "Move right between cells in a WYSIWYG table (and within cell text).",
+    defaultBinding: "l",
     maxTokens: 1,
   },
   {
