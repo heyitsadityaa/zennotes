@@ -82,6 +82,21 @@ describe('tablePlugin', () => {
     view.destroy()
   })
 
+  // #232: arrow keys used to fall through to CodeMirror and scroll the page;
+  // they should navigate the cell like h/j/k/l (consumed, not propagated).
+  it('consumes arrow keys inside a cell instead of scrolling the page (#232)', () => {
+    const view = mount(TABLE_DOC)
+    const cell = view.dom.querySelector<HTMLElement>(
+      '.cm-table-widget [data-row="0"][data-col="0"]'
+    )!
+    for (const key of ['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight']) {
+      const ev = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+      cell.dispatchEvent(ev)
+      expect(ev.defaultPrevented).toBe(true)
+    }
+    view.destroy()
+  })
+
   it('enters insert mode on `i`, revealing the raw cell source', () => {
     const view = mount(TABLE_DOC)
     const cell = view.dom.querySelector<HTMLElement>(

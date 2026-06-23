@@ -535,18 +535,22 @@ class TableWidget extends WidgetType {
           return
         }
         switch (event.key) {
+          case 'ArrowLeft':
           case 'h':
             event.preventDefault()
             this.moveCharLeft(editable, row, col)
             return
+          case 'ArrowRight':
           case 'l':
             event.preventDefault()
             this.moveCharRight(editable, row, col)
             return
+          case 'ArrowDown':
           case 'j':
             event.preventDefault()
             this.moveRowDown(row, col)
             return
+          case 'ArrowUp':
           case 'k':
             event.preventDefault()
             this.moveRowUp(row, col)
@@ -673,6 +677,22 @@ class TableWidget extends WidgetType {
     for (let r = 0; r < rowsCount; r++)
       for (let c = 0; c < cols; c++) order.push({ row: r, col: c })
     const idx = order.findIndex((a) => a.row === row && a.col === col)
+
+    // Keep arrow keys inside the table. Without this they fall through to
+    // CodeMirror, whose caret can't enter the atomic table widget, so the main
+    // selection jumps to a line outside the table and the page scrolls (#232).
+    // Up/Down move between rows; Left/Right move the caret within the cell text
+    // (the browser handles that natively in an editable cell) without scrolling.
+    if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+      event.preventDefault()
+      const targetRow = event.key === 'ArrowDown' ? (row === -1 ? 0 : row + 1) : row - 1
+      if (targetRow >= -1 && targetRow < rowsCount) this.moveFocus({ row: targetRow, col })
+      return
+    }
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      event.stopPropagation()
+      return
+    }
 
     if (event.key === 'Tab') {
       event.preventDefault()
@@ -1368,7 +1388,9 @@ export const tableVimEntry = Prec.highest(
   EditorView.domEventHandlers({
     keydown(event, view) {
       if (!vimEnabled()) return false
-      if (event.key !== 'j' && event.key !== 'k') return false
+      const down = event.key === 'j' || event.key === 'ArrowDown'
+      const up = event.key === 'k' || event.key === 'ArrowUp'
+      if (!down && !up) return false
       if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return false
       // Keys from inside a table widget are the widget's own cell navigation —
       // this handler only enters a table from the surrounding document.
@@ -1378,7 +1400,7 @@ export const tableVimEntry = Prec.highest(
       const sel = view.state.selection.main
       if (!sel.empty) return false
       const line = view.state.doc.lineAt(sel.head).number
-      const dir = event.key === 'j' ? 'down' : 'up'
+      const dir = down ? 'down' : 'up'
       const table = adjacentTableRange(view.state, line, dir)
       if (!table) return false
       if (focusTableEntryCell(view, table.from, dir === 'down' ? 'first' : 'last')) {
