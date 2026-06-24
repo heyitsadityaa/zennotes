@@ -82,7 +82,7 @@ import { slashCommandSource, slashCommandRender } from '../lib/cm-slash-commands
 import { dateShortcutSource } from '../lib/cm-date-shortcuts'
 import { wikilinkSource, wikilinkHeadingSource } from '../lib/cm-wikilinks'
 import { resolveWikilinkTarget, wikilinkHeadingAnchor } from '../lib/wikilinks'
-import { openWikilinkHeading } from '../lib/wikilink-navigation'
+import { openDatabaseFromWikilink, openWikilinkHeading } from '../lib/wikilink-navigation'
 import {
   externalLinkUrl,
   extractLinkAtCursor,
@@ -654,6 +654,10 @@ function followEditorLink(target: string): boolean {
     const heading = wikilinkHeadingAnchor(target)
     if (heading) void openWikilinkHeading(wikilink.path, heading).then(focusSoon)
     else void state.selectNote(wikilink.path).then(focusSoon)
+    return true
+  }
+  if (openDatabaseFromWikilink(target)) {
+    focusSoon()
     return true
   }
   return false

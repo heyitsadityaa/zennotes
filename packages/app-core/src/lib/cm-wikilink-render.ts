@@ -20,7 +20,7 @@ import {
 } from '@codemirror/view'
 import { useStore } from '../store'
 import { resolveWikilinkTarget, wikilinkHeadingAnchor } from './wikilinks'
-import { openWikilinkHeading } from './wikilink-navigation'
+import { openDatabaseFromWikilink, openWikilinkHeading } from './wikilink-navigation'
 
 // Same shape as the Preview pipeline (remarkWikilinks).
 const WIKILINK_RE = /(!?)\[\[([^\]|]+?)(?:\|([^\]]+))?\]\]/g
@@ -120,7 +120,11 @@ const wikilinkRenderPlugin = ViewPlugin.fromClass(
 function openWikilink(target: string): void {
   const state = useStore.getState()
   const resolved = resolveWikilinkTarget(state.notes, target)
-  if (!resolved) return // unresolved link — leave note creation to other flows
+  if (!resolved) {
+    // Not a note — maybe a `.base` database; otherwise leave it to other flows.
+    openDatabaseFromWikilink(target)
+    return
+  }
 
   const focusEditorSoon = (): void => {
     useStore.getState().setFocusedPanel('editor')
