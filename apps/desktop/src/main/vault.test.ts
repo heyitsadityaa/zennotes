@@ -71,6 +71,31 @@ describe('rootContentHiddenByInboxMode (#195)', () => {
   })
 })
 
+describe('daily-notes task settings round-trip (#288)', () => {
+  it('persists tasksDueOnNoteDate + rolloverUnfinishedTasks through set/get', async () => {
+    const root = await makeTempDir('zennotes-vault-dailytasks-')
+    await mkdir(root, { recursive: true })
+    const base = await getVaultSettings(root)
+    // Flip both away from their defaults (true / false). Before the fix the
+    // main process dropped these fields on save, so they snapped back.
+    await setVaultSettings(root, {
+      ...base,
+      dailyNotes: { ...base.dailyNotes, tasksDueOnNoteDate: false, rolloverUnfinishedTasks: true }
+    })
+    const saved = await getVaultSettings(root)
+    expect(saved.dailyNotes.tasksDueOnNoteDate).toBe(false)
+    expect(saved.dailyNotes.rolloverUnfinishedTasks).toBe(true)
+  })
+
+  it('defaults tasksDueOnNoteDate=true, rolloverUnfinishedTasks=false when unset', async () => {
+    const root = await makeTempDir('zennotes-vault-dailydefaults-')
+    await mkdir(root, { recursive: true })
+    const settings = await getVaultSettings(root)
+    expect(settings.dailyNotes.tasksDueOnNoteDate).toBe(true)
+    expect(settings.dailyNotes.rolloverUnfinishedTasks).toBe(false)
+  })
+})
+
 describe('absolutePath', () => {
   it('rejects sibling-prefix escapes outside the vault root', async () => {
     const parent = await makeTempDir('zennotes-vault-parent-')

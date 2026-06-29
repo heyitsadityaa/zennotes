@@ -191,7 +191,9 @@ const DEFAULT_VAULT_SETTINGS: VaultSettings = {
     enabled: false,
     directory: DEFAULT_DAILY_NOTES_DIRECTORY,
     titlePattern: DEFAULT_DAILY_NOTE_TITLE_PATTERN,
-    locale: DEFAULT_DAILY_NOTE_LOCALE
+    locale: DEFAULT_DAILY_NOTE_LOCALE,
+    tasksDueOnNoteDate: true,
+    rolloverUnfinishedTasks: false
   },
   weeklyNotes: {
     enabled: false,
@@ -743,7 +745,9 @@ function cloneVaultSettings(settings: VaultSettings): VaultSettings {
       titlePattern: settings.dailyNotes.titlePattern,
       locale: settings.dailyNotes.locale,
       legacyPatterns: settings.dailyNotes.legacyPatterns?.map((pattern) => ({ ...pattern })),
-      templateId: settings.dailyNotes.templateId
+      templateId: settings.dailyNotes.templateId,
+      tasksDueOnNoteDate: settings.dailyNotes.tasksDueOnNoteDate,
+      rolloverUnfinishedTasks: settings.dailyNotes.rolloverUnfinishedTasks
     },
     weeklyNotes: {
       enabled: settings.weeklyNotes.enabled,
@@ -856,7 +860,9 @@ function normalizeVaultSettings(
         enabled: DEFAULT_VAULT_SETTINGS.dailyNotes.enabled,
         directory: DEFAULT_DAILY_NOTES_DIRECTORY,
         titlePattern: DEFAULT_DAILY_NOTE_TITLE_PATTERN,
-        locale: DEFAULT_DAILY_NOTE_LOCALE
+        locale: DEFAULT_DAILY_NOTE_LOCALE,
+        tasksDueOnNoteDate: DEFAULT_VAULT_SETTINGS.dailyNotes.tasksDueOnNoteDate,
+        rolloverUnfinishedTasks: DEFAULT_VAULT_SETTINGS.dailyNotes.rolloverUnfinishedTasks
       },
       weeklyNotes: {
         enabled: DEFAULT_VAULT_SETTINGS.weeklyNotes.enabled,
@@ -878,6 +884,8 @@ function normalizeVaultSettings(
       locale?: unknown
       legacyPatterns?: unknown
       templateId?: unknown
+      tasksDueOnNoteDate?: unknown
+      rolloverUnfinishedTasks?: unknown
     } | null
     weeklyNotes?: {
       enabled?: unknown
@@ -911,7 +919,9 @@ function normalizeVaultSettings(
       titlePattern: normalizeDailyNoteTitlePattern(candidate.dailyNotes?.titlePattern),
       locale: normalizeDailyNoteLocale(candidate.dailyNotes?.locale),
       legacyPatterns: normalizeDailyNoteLegacyPatterns(candidate.dailyNotes?.legacyPatterns),
-      templateId: normalizeTemplateId(candidate.dailyNotes?.templateId)
+      templateId: normalizeTemplateId(candidate.dailyNotes?.templateId),
+      tasksDueOnNoteDate: candidate.dailyNotes?.tasksDueOnNoteDate !== false,
+      rolloverUnfinishedTasks: candidate.dailyNotes?.rolloverUnfinishedTasks === true
     },
     weeklyNotes: {
       enabled:
