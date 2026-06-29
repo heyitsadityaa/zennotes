@@ -157,7 +157,7 @@ describe('TOML serialization', () => {
   })
 
   it('round-trips visual tweaks (colors + sliders) through the [tweaks] table', () => {
-    const tweaks = { accent: '#ff3b30', density: 'comfortable', cornerRadius: '0.5' }
+    const tweaks = { accent: '#ff3b30', density: 'comfortable', cornerRadius: 'rounded' }
     const text = serializeConfig({ themeTweaks: tweaks })
     expect(text).toContain('[tweaks]')
     expect(text).toContain('"#ff3b30"')

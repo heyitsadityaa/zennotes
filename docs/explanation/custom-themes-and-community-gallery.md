@@ -41,13 +41,20 @@ Overrides. Enabled overrides inject into a second managed `<style id="zen-overri
 both built-in and custom themes. The enabled set persists in the portable config
 (`[overrides]` table / `enabledOverrides`). A seeded `example.css` cookbook lists the tokens.
 
-**Quick tweaks** are the no-code companion to overrides: a color-picker panel (Settings →
-Appearance → Quick tweaks) that recolors a curated, readability-safe set of tokens (accent +
-the six syntax/diagnostic hues). Picks are stored as a `themeTweaks` slug→color map (portable
-config `[tweaks]`), rendered to one `:root[data-theme]` block, and injected as the **topmost**
-managed layer (`<style id="zen-tweaks">`, after overrides) so an explicit pick always wins.
-Background/text are intentionally excluded — their derived scales make a one-token change look
-broken, so those belong to a full custom theme. Renderer + config only, so it works on web too.
+**Quick tweaks** are the no-code companion to overrides: a small panel (Settings → Appearance →
+Quick tweaks) that adjusts a curated, readability-safe set of tokens without writing CSS. Two
+kinds of control: **color** swatches (accent + the six syntax/diagnostic hues) and **presets**
+(segmented pickers). The presets are **Density** — Compact / Default / Comfortable, which scales the
+editor tab strip *and* the sidebar / note-list rows together — and **Corners** — Square / Default /
+Rounded, the `--z-radius-scale` global multiplier that squares or softens every corner at once. Picks are stored as a `themeTweaks` slug→value map (portable
+config `[tweaks]`) and injected as the **topmost** managed layer (`<style id="zen-tweaks">`, after
+overrides) so an explicit pick always wins. A small live **preview** inside the panel (mock tabs +
+rows + accent chip) reflects each change instantly, so you don't have to close the modal to see it.
+Density is the one tweak that also reaches into JS: the list virtualizers read the same `DENSITY`
+numbers the preset emits as CSS vars, so the windowing math can't drift from the painted row
+heights (and compact note rows drop to a single excerpt line so they don't clip). Background/text
+are intentionally excluded — their derived scales make a one-token change look broken, so those
+belong to a full custom theme. Renderer + config only, so it works on web too.
 
 Supporting affordances: a **New theme** scaffold button, a **Developer tools** button (opens
 the inspector so authors can find tokens/classes — works in shipped builds), and the in-app +

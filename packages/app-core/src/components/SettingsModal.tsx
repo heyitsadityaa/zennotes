@@ -903,30 +903,6 @@ export function SettingsModal(): JSX.Element {
       )
     }
 
-    if (t.kind === 'length') {
-      const value = Number(themeTweaks[t.slug] ?? t.fallback ?? t.min ?? 0)
-      return (
-        <div key={t.slug} className="flex items-center gap-2 text-xs text-ink-700">
-          <span className="w-32 shrink-0 truncate">{t.label}</span>
-          <input
-            type="range"
-            min={t.min}
-            max={t.max}
-            step={t.step}
-            value={value}
-            onInput={(e) => setThemeTweak(t.slug, (e.target as HTMLInputElement).value)}
-            aria-label={t.label}
-            className="h-1.5 flex-1 cursor-pointer accent-accent"
-          />
-          <span className="w-12 shrink-0 text-right tabular-nums text-ink-500">
-            {value}
-            {t.displaySuffix ?? t.unit}
-          </span>
-          {resetBtn}
-        </div>
-      )
-    }
-
     return (
       <label key={t.slug} className="flex items-center gap-2 text-xs text-ink-700">
         <input
@@ -1324,8 +1300,8 @@ export function SettingsModal(): JSX.Element {
                   </div>
                 </div>
                 {/* Live preview — built from the same --z-* tokens, so it reflects the tweaks
-                    above instantly. Lets you see tab density / corner radius / accent without
-                    closing the modal to look at the app behind it. */}
+                    above instantly. Lets you see tab/row density, corner radius and accent
+                    without closing the modal to look at the app behind it. */}
                 <div className="mt-3 rounded-lg border border-paper-300/60 bg-paper-100/50 p-3">
                   <div className="mb-2 text-xs uppercase tracking-wide text-ink-400">Preview</div>
                   {/* mock tab strip — tracks tab density (height + padding) + corner radius */}
@@ -1342,6 +1318,21 @@ export function SettingsModal(): JSX.Element {
                     >
                       Ideas.md
                     </div>
+                  </div>
+                  {/* mock note rows — track row density (height) + corner radius + accent */}
+                  <div className="mt-2 flex flex-col gap-0.5">
+                    {['Roadmap', 'Meeting notes'].map((label, i) => (
+                      <div
+                        key={label}
+                        className={`flex items-center gap-2 rounded-md px-2 text-xs ${
+                          i === 0 ? 'bg-paper-200 text-ink-900' : 'text-ink-500'
+                        }`}
+                        style={{ height: 'var(--z-sidebar-row-h)' }}
+                      >
+                        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent/70" />
+                        {label}
+                      </div>
+                    ))}
                   </div>
                   {/* button + accent selection — track corner radius + accent color */}
                   <div className="mt-2 flex flex-wrap items-center gap-2">

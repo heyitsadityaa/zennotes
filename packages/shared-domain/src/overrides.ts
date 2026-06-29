@@ -42,7 +42,7 @@ export function isOverrideEnabled(
  */
 import { parseColor } from './custom-themes'
 
-export type TweakKind = 'color' | 'length' | 'preset'
+export type TweakKind = 'color' | 'preset'
 
 export interface TweakableToken {
   /** Stable key stored in config (e.g. "accent"). */
@@ -55,19 +55,58 @@ export interface TweakableToken {
   group: 'accent' | 'syntax' | 'layout'
   /** How the value is stored + rendered. Defaults to `color` (a swatch). */
   kind?: TweakKind
-  /** `length` only: slider bounds, unit, and the default (= the CSS `:root` value). */
-  min?: number
-  max?: number
-  step?: number
-  /** CSS unit appended to the emitted value; '' for a unitless multiplier. */
-  unit?: string
-  /** UI-only suffix for the displayed value (defaults to `unit`). */
-  displaySuffix?: string
-  fallback?: number
   /** `preset` only: the segmented options, and the CSS vars each value sets
    *  (a value with no entry — e.g. "default" — emits nothing → CSS defaults). */
   options?: { value: string; label: string }[]
   presets?: Record<string, Record<string, string>>
+}
+
+/**
+ * Interface density. `default` = the metrics baked into `styles/index.css`
+ * `:root` (and the Sidebar/NoteList virtualizer fallbacks); `compact` /
+ * `comfortable` override them via the density preset below.
+ */
+export type DensityLevel = 'compact' | 'default' | 'comfortable'
+
+/**
+ * The single source of truth for every density-driven metric. The density
+ * preset emits these as CSS vars, and the list virtualizers read the *same*
+ * numbers for their `itemSize` — so the windowing math can never drift from
+ * what's painted. Sidebar rows are uniform (`h-9` = 36px by default); a
+ * note-list row is the slot height (NoteRow/FolderAssetRow sit 4px shorter).
+ */
+export interface DensityMetrics {
+  /** Editor tab strip height → `--z-tab-height`. */
+  tabHeight: number
+  /** Editor tab horizontal padding → `--z-tab-pad-x` (a CSS length). */
+  tabPadX: string
+  /** Every sidebar row → `--z-sidebar-row-h`, and the leaf-list `itemSize`. */
+  sidebarRow: number
+  /** Note-list row slot → `--z-note-row-h`, and the folder-entry `itemSize`. */
+  noteRow: number
+}
+export const DENSITY: Record<DensityLevel, DensityMetrics> = {
+  compact: { tabHeight: 32, tabPadX: '0.375rem', sidebarRow: 30, noteRow: 64 },
+  default: { tabHeight: 40, tabPadX: '0.5rem', sidebarRow: 36, noteRow: 76 },
+  comfortable: { tabHeight: 48, tabPadX: '0.75rem', sidebarRow: 44, noteRow: 92 }
+}
+
+/** Resolve the active density level from the persisted `[tweaks]` map. */
+export function densityFromTweaks(tweaks: Record<string, string> | undefined): DensityLevel {
+  const v = tweaks?.density
+  return v === 'compact' || v === 'comfortable' ? v : 'default'
+}
+
+/** The CSS vars a non-default level sets — derived from DENSITY so the preset
+ *  and the virtualizers can't fall out of sync. */
+function densityVars(level: 'compact' | 'comfortable'): Record<string, string> {
+  const m = DENSITY[level]
+  return {
+    '--z-tab-height': `${m.tabHeight}px`,
+    '--z-tab-pad-x': m.tabPadX,
+    '--z-sidebar-row-h': `${m.sidebarRow}px`,
+    '--z-note-row-h': `${m.noteRow}px`
+  }
 }
 
 /** The tokens the visual tweak UI exposes, in display order. */
@@ -80,11 +119,13 @@ export const TWEAKABLE_TOKENS: TweakableToken[] = [
   { slug: 'purple', token: '--z-purple', label: 'Purple', group: 'syntax', kind: 'color' },
   { slug: 'aqua', token: '--z-aqua', label: 'Aqua', group: 'syntax', kind: 'color' },
   {
-    // Tab density preset — each option sets tab height + horizontal padding
-    // together so tabs look deliberately tighter/roomier, not just padded.
+    // Interface density — one control that scales the editor tab strip *and*
+    // the sidebar / note-list rows together. Each level sets the height +
+    // padding vars (from DENSITY); the list virtualizers read the matching
+    // DENSITY numbers so the windowing stays exact. "default" emits nothing.
     slug: 'density',
     token: '',
-    label: 'Tab density',
+    label: 'Density',
     group: 'layout',
     kind: 'preset',
     options: [
@@ -93,31 +134,35 @@ export const TWEAKABLE_TOKENS: TweakableToken[] = [
       { value: 'comfortable', label: 'Comfortable' }
     ],
     presets: {
-      compact: { '--z-tab-height': '32px', '--z-tab-pad-x': '0.375rem' },
-      comfortable: { '--z-tab-height': '48px', '--z-tab-pad-x': '0.75rem' }
+      compact: densityVars('compact'),
+      comfortable: densityVars('comfortable')
     }
   },
   {
-    // Global radius multiplier: 0 = square, 1 = theme default, up to 2× rounder.
+    // Corner roundness as a global `--z-radius-scale` multiplier: square = 0,
+    // default = 1 (the `:root` value, so it emits nothing), rounded = 1.5× softer.
     // Pills/circles use `rounded-full`, which stays round regardless.
     slug: 'cornerRadius',
-    token: '--z-radius-scale',
-    label: 'Corner radius',
+    token: '',
+    label: 'Corners',
     group: 'layout',
-    kind: 'length',
-    min: 0,
-    max: 2,
-    step: 0.05,
-    unit: '',
-    displaySuffix: '×',
-    fallback: 1
+    kind: 'preset',
+    options: [
+      { value: 'square', label: 'Square' },
+      { value: 'default', label: 'Default' },
+      { value: 'rounded', label: 'Rounded' }
+    ],
+    presets: {
+      square: { '--z-radius-scale': '0' },
+      rounded: { '--z-radius-scale': '1.5' }
+    }
   }
 ]
 
 /**
  * Render the visual-tweak map into a single `:root[data-theme]` block.
- * Colors → RGB triplet; lengths → `<n><unit>`; toggles → their `onValue` when
- * on. Unknown/invalid entries are skipped; returns '' when nothing is set.
+ * Colors → an RGB triplet; presets → the CSS-var set their value maps to.
+ * Unknown/invalid entries are skipped; returns '' when nothing is set.
  */
 export function buildTweaksCss(tweaks: Record<string, string> | undefined): string {
   if (!tweaks) return ''
@@ -130,9 +175,6 @@ export function buildTweaksCss(tweaks: Record<string, string> | undefined): stri
       if (vars) {
         for (const [cssVar, value] of Object.entries(vars)) decls.push(`  ${cssVar}: ${value};`)
       }
-    } else if (t.kind === 'length') {
-      const n = Number(raw)
-      if (Number.isFinite(n)) decls.push(`  ${t.token}: ${n}${t.unit ?? 'px'};`)
     } else {
       const rgb = parseColor(raw)
       if (rgb) decls.push(`  ${t.token}: ${rgb.join(' ')};`)

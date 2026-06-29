@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildTweaksCss, isOverrideEnabled } from './overrides'
+import { buildTweaksCss, densityFromTweaks, isOverrideEnabled } from './overrides'
 
 describe('buildTweaksCss', () => {
   it('renders set tokens as one :root[data-theme] block (hex → RGB triplets)', () => {
@@ -21,18 +21,34 @@ describe('buildTweaksCss', () => {
     expect(css.indexOf('--z-accent')).toBeLessThan(css.indexOf('--z-blue'))
   })
 
-  it('renders length tweaks (unitless multipliers) and skips bad values', () => {
-    expect(buildTweaksCss({ cornerRadius: '0' })).toContain('--z-radius-scale: 0;')
-    expect(buildTweaksCss({ cornerRadius: '1.5' })).toContain('--z-radius-scale: 1.5;')
+  it('expands the corners preset (square/rounded) and ignores default/unknown', () => {
+    expect(buildTweaksCss({ cornerRadius: 'square' })).toContain('--z-radius-scale: 0;')
+    expect(buildTweaksCss({ cornerRadius: 'rounded' })).toContain('--z-radius-scale: 1.5;')
+    expect(buildTweaksCss({ cornerRadius: 'default' })).toBe('')
     expect(buildTweaksCss({ cornerRadius: 'big' })).toBe('')
   })
 
-  it('expands a preset into its CSS vars; default/unknown emit nothing', () => {
+  it('expands the density preset into tab + row vars; default/unknown emit nothing', () => {
     const css = buildTweaksCss({ density: 'comfortable' })
+    // Scales the editor tabs *and* the sidebar / note-list rows together.
     expect(css).toContain('--z-tab-height: 48px;')
     expect(css).toContain('--z-tab-pad-x: 0.75rem;')
+    expect(css).toContain('--z-sidebar-row-h: 44px;')
+    expect(css).toContain('--z-note-row-h: 92px;')
+    expect(buildTweaksCss({ density: 'compact' })).toContain('--z-sidebar-row-h: 30px;')
     expect(buildTweaksCss({ density: 'default' })).toBe('')
     expect(buildTweaksCss({ density: 'bogus' })).toBe('')
+  })
+})
+
+describe('densityFromTweaks', () => {
+  it('resolves only the known non-default levels, else falls back to default', () => {
+    expect(densityFromTweaks({ density: 'compact' })).toBe('compact')
+    expect(densityFromTweaks({ density: 'comfortable' })).toBe('comfortable')
+    expect(densityFromTweaks({ density: 'default' })).toBe('default')
+    expect(densityFromTweaks({ density: 'bogus' })).toBe('default')
+    expect(densityFromTweaks({})).toBe('default')
+    expect(densityFromTweaks(undefined)).toBe('default')
   })
 })
 
