@@ -2921,6 +2921,12 @@ let registeredQuickCaptureHotkey: string | null = null
 /** When true, the quick-capture window stays pinned on top and does not
  *  auto-hide on blur. Mirrors PersistedConfig.quickCapturePinned. */
 let quickCapturePinned = false
+/** True when the panel was summoned while ZenNotes was NOT the frontmost app
+ *  (the global hotkey fired from another app). On dismiss we then hide the
+ *  whole app so macOS hands focus back to that app instead of surfacing
+ *  ZenNotes' main window — the Spotlight/Raycast feel. Recomputed on every
+ *  show; consumed (reset to false) on the next dismiss. */
+let quickCaptureReturnFocus = false
 
 async function ensureQuickCaptureWindow(): Promise<BrowserWindow> {
   if (quickCaptureWindow && !quickCaptureWindow.isDestroyed()) return quickCaptureWindow
@@ -2968,7 +2974,7 @@ async function ensureQuickCaptureWindow(): Promise<BrowserWindow> {
   win.on('close', (event) => {
     if (quickCaptureQuitting) return
     event.preventDefault()
-    win.hide()
+    hideQuickCaptureWindow(win)
   })
   win.on('closed', () => {
     if (quickCaptureWindow === win) quickCaptureWindow = null
@@ -3015,7 +3021,22 @@ function applyQuickCapturePinned(): void {
   win.setAlwaysOnTop(true, quickCapturePinned ? 'screen-saver' : 'floating')
 }
 
+/** Dismiss the quick-capture panel. When it was summoned from another app,
+ *  hide the whole app (macOS) so focus returns to that app rather than
+ *  surfacing ZenNotes' main window. */
+function hideQuickCaptureWindow(win: BrowserWindow): void {
+  if (win.isDestroyed()) return
+  const returnFocus = quickCaptureReturnFocus
+  quickCaptureReturnFocus = false
+  win.hide()
+  if (returnFocus && isMac()) app.hide()
+}
+
 async function showQuickCaptureWindow(): Promise<void> {
+  // Remember whether ZenNotes was already frontmost. If no ZenNotes window is
+  // focused, the panel was summoned from another app (global hotkey / deep
+  // link) — dismissing it should hand focus back to that app.
+  quickCaptureReturnFocus = !BrowserWindow.getFocusedWindow()
   const win = await ensureQuickCaptureWindow()
   const sourceWindow = BrowserWindow.getFocusedWindow() ?? mainWindow
   if (sourceWindow && sourceWindow.id !== win.id && !sourceWindow.isDestroyed()) {
@@ -3028,7 +3049,7 @@ async function showQuickCaptureWindow(): Promise<void> {
 async function toggleQuickCaptureWindow(): Promise<void> {
   const win = quickCaptureWindow
   if (win && !win.isDestroyed() && win.isVisible() && win.isFocused()) {
-    win.hide()
+    hideQuickCaptureWindow(win)
     return
   }
   await showQuickCaptureWindow()
