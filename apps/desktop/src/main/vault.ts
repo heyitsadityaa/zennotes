@@ -86,7 +86,6 @@ const HIDDEN_PRIMARY_ROOT_NAMES = new Set<string>([
   ...ATTACHMENTS_DIRS,
   INTERNAL_VAULT_DIR
 ])
-const FENCED_CODE_BLOCK_RE = /(^|\n)```[^\n]*\n[\s\S]*?\n```[ \t]*(?=\n|$)/g
 const IMAGE_EXTENSIONS = new Set([
   '.apng',
   '.avif',
@@ -1413,12 +1412,47 @@ function folderOf(root: string, absPath: string): NoteFolder | null {
   return folderForRelativePath(path.relative(root, absPath))
 }
 
+/**
+ * Blank out fenced and inline code spans so the #tag / [[link]] / asset
+ * scanners never read code as content. Fence detection is line-based and
+ * indentation-tolerant: a fence nested under a list item is still a code block,
+ * so its contents (e.g. a C `#include` line) must not be scanned. A
+ * column-0-anchored regex missed indented fences and leaked them as tags (#293).
+ * Mirrors `stripCodeContent` in packages/app-core/src/lib/tags.ts and
+ * apps/server/internal/vault/parse.go — keep the three in sync.
+ */
 function stripCodeContent(body: string): string {
-  if (!body.includes('`')) return body
-  return body
-    // Only treat line-start triple backticks as actual fenced blocks.
-    .replace(FENCED_CODE_BLOCK_RE, '$1 ')
-    .replace(/`[^`\n]*`/g, ' ')
+  if (!body.includes('`') && !body.includes('~')) return body
+  const lines = body.split('\n')
+  let inFence = false
+  let fenceChar = ''
+  let fenceLen = 0
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] as string
+    const m = /^[ \t]*(`{3,}|~{3,})(.*)$/.exec(line)
+    if (m) {
+      const marker = m[1] as string
+      const char = marker[0] as string
+      const rest = m[2] as string
+      if (!inFence) {
+        // A backtick fence's info string may not contain a backtick (CommonMark),
+        // which keeps a single-line ``` ```inline``` ``` out of fence handling.
+        if (char === '~' || !rest.includes('`')) {
+          inFence = true
+          fenceChar = char
+          fenceLen = marker.length
+          lines[i] = ' '
+          continue
+        }
+      } else if (char === fenceChar && marker.length >= fenceLen && rest.trim() === '') {
+        inFence = false
+        lines[i] = ' '
+        continue
+      }
+    }
+    if (inFence) lines[i] = ' '
+  }
+  return lines.join('\n').replace(/`[^`\n]*`/g, ' ')
 }
 
 function localAssetTargetKind(target: string): ImportedAssetKind | null {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  extractWikilinkTargets,
   isSameFileHeadingLink,
   parseCreateNotePath,
   resolveWikilinkTarget,
@@ -7,6 +8,13 @@ import {
   suggestCreateNotePath,
   wikilinkHeadingAnchor
 } from './wikilinks'
+
+describe('extractWikilinkTargets — code fences are not scanned (#293)', () => {
+  it('ignores [[links]] inside a fence indented under a list item', () => {
+    const body = '- item:\n\n  ```\n  see [[Secret Note]] here\n  ```\n\n[[Real Link]]'
+    expect(extractWikilinkTargets(body)).toEqual(['Real Link'])
+  })
+})
 
 const notes = [
   { path: 'inbox/My Document.md', title: 'My Document', folder: 'inbox' as const },

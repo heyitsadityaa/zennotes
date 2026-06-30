@@ -482,6 +482,22 @@ describe('searchVaultText', () => {
 })
 
 describe('listNotes metadata parsing', () => {
+  it('does not index #tags inside a fenced code block nested under a list item (#293)', async () => {
+    const root = await makeTempDir('zennotes-meta-fence-')
+    await ensureVaultLayout(root)
+    const rel = 'inbox/code.md'
+    await writeFile(
+      path.join(root, rel),
+      '# Notes\n\n- a list item with a code block:\n\n  ```c\n  #include <stdio.h>\n  ```\n\n#realtag\n',
+      'utf8'
+    )
+
+    const notes = await listNotes(root)
+    const note = notes.find((n) => n.path === rel)
+    // `#include` lives inside the indented fence → not a tag; `#realtag` is.
+    expect(note?.tags).toEqual(['realtag'])
+  })
+
   it('detects only local asset references as attachments', async () => {
     const root = await makeTempDir('zennotes-meta-assets-')
     await ensureVaultLayout(root)
