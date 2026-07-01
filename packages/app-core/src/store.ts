@@ -17,6 +17,7 @@ import type {
   RemoteWorkspaceProfileInput,
   ServerCapabilities,
   VaultSettings,
+  VaultViewSettings,
   VaultTextSearchBackendPreference,
   VaultChangeEvent,
   VaultInfo,
@@ -59,6 +60,9 @@ import {
   type TaskPriority as TaskLinePriority
 } from '@shared/tasklists'
 import { DEFAULT_THEME_ID, THEMES, type ThemeFamily, type ThemeMode } from './lib/themes'
+import { isCustomThemeId } from './lib/custom-themes'
+import { customThemeSlugFromId, type CustomTheme } from '@shared/custom-themes'
+import type { Override } from '@shared/overrides'
 import { formatMarkdown } from './lib/format-markdown'
 import { confirmMoveToTrash } from './lib/confirm-trash'
 import { confirmApp } from './lib/confirm-requests'
@@ -168,6 +172,9 @@ export type CommandPaletteInitialMode = 'main' | 'vault'
 
 const PREFS_KEY = 'zen:prefs:v2'
 const WORKSPACE_KEY = 'zen:workspace:v1'
+/** Debounce for mirroring the workspace snapshot to the synced vault file —
+ *  localStorage updates immediately; the file lags to bound sync churn. (#292) */
+const WORKSPACE_FILE_DEBOUNCE_MS = 1500
 const VALID_FAMILIES: ThemeFamily[] = [
   'apple',
   'gruvbox',
@@ -178,7 +185,8 @@ const VALID_FAMILIES: ThemeFamily[] = [
   'nord',
   'tokyo-night',
   'kanagawa',
-  'black-metal'
+  'black-metal',
+  'custom'
 ]
 const VALID_MODES: ThemeMode[] = ['light', 'dark', 'auto']
 const VALID_SORTS: NoteSortOrder[] = [
@@ -340,6 +348,10 @@ interface Prefs {
    *  (like `set clipboard=unnamed`). */
   vimYankToClipboard: boolean
   keymapOverrides: KeymapOverrides
+  /** Enabled CSS overrides, keyed by filename (e.g. `"focus.css": "on"`). Persisted. */
+  enabledOverrides: Record<string, string>
+  /** Visual color tweaks from the picker UI, keyed by token slug (e.g. `"accent": "#ff3b30"`). Persisted. */
+  themeTweaks: Record<string, string>
   /** When true, pressing the leader key shows the next available Vim-style actions. */
   whichKeyHints: boolean
   /** Whether leader hints auto-hide after a timeout or stay open until dismissed. */
@@ -370,6 +382,12 @@ interface Prefs {
   previewMaxWidth: number   // px — max reading width for preview surfaces
   lineNumberMode: LineNumberMode
   lineNumberPosition: LineNumberPosition
+  /** Whether note-list/view prefs (sort, grouping, tasks view, …) apply the
+   *  same everywhere ('global') or independently per vault ('vault'). (#292) */
+  viewSettingsScope: 'global' | 'vault'
+  /** Export PDFs using the current theme (colors + dark/light, incl. custom
+   *  themes) instead of the default clean light-for-print theme. */
+  pdfExportUseTheme: boolean
   /** Font used by the whole app chrome (sidebar, menus, title bar). */
   interfaceFont: string | null
   /** Font used inside the editor + preview content. */
@@ -468,11 +486,18 @@ export type TaskMutation =
   | { kind: 'set-text'; text: string }
 
 type AssetUndoEntry = { kind: 'delete-asset'; deleted: DeletedAsset; createdAt: number }
+type ClosedTabEntry = {
+  paneId: string
+  path: string
+  index: number
+  pinned: boolean
+}
 
 const VALID_TASKS_VIEW_MODES: TasksViewMode[] = ['list', 'calendar', 'kanban']
 const VALID_KANBAN_GROUP_BYS: KanbanGroupBy[] = ['status', 'priority', 'folder']
 const MAX_KANBAN_COLUMN_TITLE_LENGTH = 48
 const MAX_ASSET_UNDO_STACK = 20
+const MAX_CLOSED_TAB_STACK = 50
 
 function normalizeKanbanColumnTitle(title: string): string | null {
   const normalized = title.trim().replace(/\s+/g, ' ').slice(0, MAX_KANBAN_COLUMN_TITLE_LENGTH)
@@ -491,6 +516,66 @@ function normalizeKanbanColumnTitles(raw: unknown): Record<string, string> {
     if (normalized) out[key] = normalized
   }
   return out
+}
+
+/**
+ * Build the store patch that overlays a vault's per-vault view overrides (#292)
+ * onto the 8 view prefs. Unset/invalid keys are omitted, so the live (global)
+ * value is kept for them. Applied on every vault open.
+ */
+export function viewPrefsFromVault(settings: VaultSettings | null | undefined): Partial<Store> {
+  const v = settings?.view
+  if (!v || typeof v !== 'object') return {}
+  const patch: Partial<Store> = {}
+  if (typeof v.noteSortOrder === 'string' && VALID_SORTS.includes(v.noteSortOrder as NoteSortOrder)) {
+    patch.noteSortOrder = v.noteSortOrder as NoteSortOrder
+  }
+  if (typeof v.groupByKind === 'boolean') patch.groupByKind = v.groupByKind
+  if (
+    typeof v.tasksViewMode === 'string' &&
+    VALID_TASKS_VIEW_MODES.includes(v.tasksViewMode as TasksViewMode)
+  ) {
+    patch.tasksViewMode = v.tasksViewMode as TasksViewMode
+  }
+  if (
+    typeof v.kanbanGroupBy === 'string' &&
+    VALID_KANBAN_GROUP_BYS.includes(v.kanbanGroupBy as KanbanGroupBy)
+  ) {
+    patch.kanbanGroupBy = v.kanbanGroupBy as KanbanGroupBy
+  }
+  if (v.kanbanColumnTitles && typeof v.kanbanColumnTitles === 'object') {
+    patch.kanbanColumnTitles = normalizeKanbanColumnTitles(v.kanbanColumnTitles)
+  }
+  if (typeof v.autoReveal === 'boolean') patch.autoReveal = v.autoReveal
+  if (v.systemFolderLabels && typeof v.systemFolderLabels === 'object') {
+    patch.systemFolderLabels = normalizeSystemFolderLabels(v.systemFolderLabels)
+  }
+  if (typeof v.unifiedSidebar === 'boolean') patch.unifiedSidebar = v.unifiedSidebar
+  return patch
+}
+
+let viewPersistTimer: ReturnType<typeof setTimeout> | null = null
+let pendingViewPatch: VaultViewSettings = {}
+
+/** Persist a view-pref change to the CURRENT vault's `vault.json` `view` block
+ *  (debounced + coalesced) so the choice is per-vault. The global pref keeps
+ *  being written too (it's the floating default for vaults with no override). (#292) */
+function persistVaultViewOverride(patch: VaultViewSettings): void {
+  // Only persist per-vault when the user opted into per-vault scope; in 'global'
+  // scope the 8 setters keep writing the global config only. (#292)
+  if (useStore.getState().viewSettingsScope !== 'vault') return
+  pendingViewPatch = { ...pendingViewPatch, ...patch }
+  if (viewPersistTimer) clearTimeout(viewPersistTimer)
+  viewPersistTimer = setTimeout(() => {
+    viewPersistTimer = null
+    const toApply = pendingViewPatch
+    pendingViewPatch = {}
+    const current = useStore.getState().vaultSettings
+    void useStore.getState().setVaultSettings({
+      ...current,
+      view: { ...(current.view ?? {}), ...toApply }
+    })
+  }, 400)
 }
 
 export const DEFAULT_PREFS: Prefs = {
@@ -513,11 +598,15 @@ export const DEFAULT_PREFS: Prefs = {
   themeId: DEFAULT_THEME_ID,
   themeFamily: 'gruvbox',
   themeMode: 'dark',
+  enabledOverrides: {},
+  themeTweaks: {},
   editorFontSize: 16,
   editorLineHeight: 1.7,
   previewMaxWidth: 920,
   lineNumberMode: 'off',
   lineNumberPosition: 'text',
+  viewSettingsScope: 'global',
+  pdfExportUseTheme: false,
   // Leave all font slots on the built-in "Default" path. That lets the
   // shipped CSS fallbacks choose sensible system fonts on each machine
   // instead of forcing a specific family that may not exist.
@@ -569,7 +658,7 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
       ? p.themeMode
       : DEFAULT_PREFS.themeMode
   const themeId =
-    p.themeId && THEMES.some((t) => t.id === p.themeId)
+    p.themeId && (THEMES.some((t) => t.id === p.themeId) || isCustomThemeId(p.themeId))
       ? p.themeId
       : DEFAULT_PREFS.themeId
   return {
@@ -583,6 +672,8 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
         ? p.vimYankToClipboard
         : DEFAULT_PREFS.vimYankToClipboard,
     keymapOverrides: normalizeKeymapOverrides(p.keymapOverrides),
+    enabledOverrides: normalizeEnabledOverrides(p.enabledOverrides),
+    themeTweaks: normalizeThemeTweaks(p.themeTweaks),
     whichKeyHints:
       typeof p.whichKeyHints === 'boolean'
         ? p.whichKeyHints
@@ -645,6 +736,11 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
       p.lineNumberMode && VALID_LINE_NUMBER_MODES.includes(p.lineNumberMode)
         ? p.lineNumberMode
         : DEFAULT_PREFS.lineNumberMode,
+    viewSettingsScope: p.viewSettingsScope === 'vault' ? 'vault' : 'global',
+    pdfExportUseTheme:
+      typeof p.pdfExportUseTheme === 'boolean'
+        ? p.pdfExportUseTheme
+        : DEFAULT_PREFS.pdfExportUseTheme,
     lineNumberPosition:
       p.lineNumberPosition && VALID_LINE_NUMBER_POSITIONS.includes(p.lineNumberPosition)
         ? p.lineNumberPosition
@@ -1341,6 +1437,8 @@ function collectPrefs(s: {
   vimInsertEscape: string
   vimYankToClipboard: boolean
   keymapOverrides: KeymapOverrides
+  enabledOverrides: Record<string, string>
+  themeTweaks: Record<string, string>
   whichKeyHints: boolean
   whichKeyHintMode: WhichKeyHintMode
   whichKeyHintTimeoutMs: number
@@ -1361,6 +1459,8 @@ function collectPrefs(s: {
   previewMaxWidth: number
   lineNumberMode: LineNumberMode
   lineNumberPosition: LineNumberPosition
+  viewSettingsScope: 'global' | 'vault'
+  pdfExportUseTheme: boolean
   interfaceFont: string | null
   textFont: string | null
   monoFont: string | null
@@ -1402,6 +1502,8 @@ function collectPrefs(s: {
     vimInsertEscape: s.vimInsertEscape,
     vimYankToClipboard: s.vimYankToClipboard,
     keymapOverrides: s.keymapOverrides,
+    enabledOverrides: s.enabledOverrides,
+    themeTweaks: s.themeTweaks,
     whichKeyHints: s.whichKeyHints,
     whichKeyHintMode: s.whichKeyHintMode,
     whichKeyHintTimeoutMs: s.whichKeyHintTimeoutMs,
@@ -1421,6 +1523,8 @@ function collectPrefs(s: {
     editorLineHeight: s.editorLineHeight,
     previewMaxWidth: s.previewMaxWidth,
     lineNumberMode: s.lineNumberMode,
+    viewSettingsScope: s.viewSettingsScope,
+    pdfExportUseTheme: s.pdfExportUseTheme,
     lineNumberPosition: s.lineNumberPosition,
     interfaceFont: s.interfaceFont,
     textFont: s.textFont,
@@ -1480,6 +1584,10 @@ interface WorkspaceSnapshot {
   sidebarOpen: boolean
   noteListOpen: boolean
   selectedTags: string[]
+  /** Epoch ms of the last write — drives newest-wins when the synced file and
+   *  the local cache disagree (e.g. after working in this vault on another
+   *  machine). (#292) */
+  savedAt?: number
 }
 
 interface ZenRestoreState {
@@ -1499,7 +1607,7 @@ function loadWorkspaceSnapshots(): Record<string, unknown> {
   }
 }
 
-function saveWorkspaceSnapshot(root: string, snapshot: WorkspaceSnapshot): void {
+function writeWorkspaceSnapshotToCache(root: string, snapshot: unknown): void {
   try {
     const allSnapshots = loadWorkspaceSnapshots()
     allSnapshots[root] = snapshot
@@ -1509,8 +1617,55 @@ function saveWorkspaceSnapshot(root: string, snapshot: WorkspaceSnapshot): void 
   }
 }
 
+let workspaceFileWriteTimer: ReturnType<typeof setTimeout> | null = null
+
+function saveWorkspaceSnapshot(root: string, snapshot: WorkspaceSnapshot): void {
+  const stamped: WorkspaceSnapshot = { ...snapshot, savedAt: Date.now() }
+  // localStorage stays the fast, synchronous local cache.
+  writeWorkspaceSnapshotToCache(root, stamped)
+  // Mirror to <vault>/.zennotes/workspace.json (debounced) so the workspace
+  // syncs with the vault across machines. The IPC targets the CURRENT window's
+  // vault, so drop the write if the vault changed during the debounce. (#292)
+  if (workspaceFileWriteTimer) clearTimeout(workspaceFileWriteTimer)
+  workspaceFileWriteTimer = setTimeout(() => {
+    workspaceFileWriteTimer = null
+    if (useStore.getState().vault?.root !== root) return
+    try {
+      void window.zen?.writeWorkspaceState?.(JSON.stringify(stamped))
+    } catch {
+      /* ignore */
+    }
+  }, WORKSPACE_FILE_DEBOUNCE_MS)
+}
+
 function loadWorkspaceSnapshot(root: string): unknown {
   return loadWorkspaceSnapshots()[root] ?? null
+}
+
+/** Pick the freshest workspace snapshot between the local cache and the synced
+ *  file (newest-wins by `savedAt`), refreshing the cache when the file wins. The
+ *  file IPC targets the current window's vault, which matches `root` at restore
+ *  time. (#292) */
+async function loadBestWorkspaceSnapshot(root: string): Promise<unknown> {
+  const local = loadWorkspaceSnapshot(root) as { savedAt?: unknown } | null
+  let fileSnap: { savedAt?: unknown } | null = null
+  try {
+    const raw = await window.zen?.readWorkspaceState?.()
+    if (raw) {
+      const parsed = JSON.parse(raw) as unknown
+      if (parsed && typeof parsed === 'object') fileSnap = parsed as { savedAt?: unknown }
+    }
+  } catch {
+    /* ignore — fall back to the local cache */
+  }
+  if (!fileSnap) return local
+  const fileAt = typeof fileSnap.savedAt === 'number' ? fileSnap.savedAt : 0
+  const localAt = local && typeof local.savedAt === 'number' ? local.savedAt : -1
+  if (fileAt >= localAt) {
+    writeWorkspaceSnapshotToCache(root, fileSnap)
+    return fileSnap
+  }
+  return local
 }
 
 function normalizeWorkspaceView(raw: unknown): View {
@@ -1770,6 +1925,10 @@ interface Store {
   /** When true, Vim yank/delete/change also copy to the system clipboard. Persisted. */
   vimYankToClipboard: boolean
   keymapOverrides: KeymapOverrides
+  /** Enabled CSS overrides, keyed by filename. Persisted to config [overrides]. */
+  enabledOverrides: Record<string, string>
+  /** Visual color tweaks (token slug → color). Persisted to config [tweaks]. */
+  themeTweaks: Record<string, string>
   whichKeyHints: boolean
   whichKeyHintMode: WhichKeyHintMode
   whichKeyHintTimeoutMs: number
@@ -1792,6 +1951,8 @@ interface Store {
   previewMaxWidth: number
   lineNumberMode: LineNumberMode
   lineNumberPosition: LineNumberPosition
+  viewSettingsScope: 'global' | 'vault'
+  pdfExportUseTheme: boolean
   interfaceFont: string | null
   textFont: string | null
   monoFont: string | null
@@ -1869,6 +2030,19 @@ interface Store {
    *  and kept incrementally fresh via the chokidar watcher while the view
    *  is visible. */
   vaultTasks: VaultTask[]
+
+  /** User themes parsed from ~/.config/zennotes/themes. Loaded + watched by
+   *  `initCustomThemes`; the CSS is injected as it changes. */
+  customThemes: CustomTheme[]
+  /** User CSS overrides parsed from ~/.config/zennotes/overrides. Loaded + watched
+   *  by `initOverrides`; enabled ones are injected on top of the active theme. */
+  overrides: Override[]
+  /** Toggle a override on/off (persists to the config [overrides] table). */
+  setOverrideEnabled(name: string, on: boolean): void
+  /** Set or clear a visual color tweak (slug → color; null clears it). Persisted. */
+  setThemeTweak(slug: string, value: string | null): void
+  /** Clear all visual color tweaks. */
+  resetThemeTweaks(): void
   tasksLoading: boolean
   tasksFilter: string
   taskCursorIndex: number
@@ -1923,6 +2097,7 @@ interface Store {
   /** Comment sidecars keyed by note path. Loaded lazily per open note. */
   noteComments: Record<string, NoteComment[]>
   activeCommentId: string | null
+  closedTabStack: ClosedTabEntry[]
 
   setVault: (v: VaultInfo | null) => void
   setVaultSettings: (next: VaultSettings) => Promise<void>
@@ -2067,6 +2242,7 @@ interface Store {
    */
   importDroppedMarkdownFiles: (files: File[]) => Promise<void>
   closeActiveNote: () => Promise<void>
+  reopenLastClosedTab: () => Promise<void>
   trashActive: () => Promise<void>
   restoreActive: () => Promise<void>
   archiveActive: () => Promise<void>
@@ -2105,6 +2281,8 @@ interface Store {
   setEditorLineHeight: (mult: number) => void
   setPreviewMaxWidth: (px: number) => void
   setLineNumberMode: (mode: LineNumberMode) => void
+  setViewSettingsScope: (scope: 'global' | 'vault') => void
+  setPdfExportUseTheme: (on: boolean) => void
   setLineNumberPosition: (position: LineNumberPosition) => void
   setInterfaceFont: (family: string | null) => void
   setTextFont: (family: string | null) => void
@@ -3040,7 +3218,15 @@ export const useStore = create<Store>((set, get) => {
 
   const restoreWorkspaceForVault = async (vault: VaultInfo): Promise<void> => {
     const startedAt = performance.now()
-    const rawSnapshot = loadWorkspaceSnapshot(vault.root)
+    // Overlay this vault's per-vault view overrides onto the live prefs — only
+    // in per-vault scope; in 'global' scope the global prefs win. (#292)
+    if (get().viewSettingsScope === 'vault') {
+      const viewOverlay = viewPrefsFromVault(get().vaultSettings)
+      if (Object.keys(viewOverlay).length > 0) set(viewOverlay)
+    }
+    // Prefer the synced .zennotes/workspace.json when it's newer than the local
+    // cache, so opening a vault on another machine restores its workspace. (#292)
+    const rawSnapshot = await loadBestWorkspaceSnapshot(vault.root)
     if (!rawSnapshot || typeof rawSnapshot !== 'object') {
       set({
         collapsedFolders: computeStartupCollapsedFolders(
@@ -3176,6 +3362,8 @@ export const useStore = create<Store>((set, get) => {
   vimInsertEscape: loadPrefs().vimInsertEscape,
   vimYankToClipboard: loadPrefs().vimYankToClipboard,
   keymapOverrides: loadPrefs().keymapOverrides,
+  enabledOverrides: loadPrefs().enabledOverrides,
+  themeTweaks: loadPrefs().themeTweaks,
   whichKeyHints: loadPrefs().whichKeyHints,
   whichKeyHintMode: loadPrefs().whichKeyHintMode,
   whichKeyHintTimeoutMs: loadPrefs().whichKeyHintTimeoutMs,
@@ -3196,6 +3384,8 @@ export const useStore = create<Store>((set, get) => {
   editorLineHeight: loadPrefs().editorLineHeight,
   previewMaxWidth: loadPrefs().previewMaxWidth,
   lineNumberMode: loadPrefs().lineNumberMode,
+  viewSettingsScope: loadPrefs().viewSettingsScope,
+  pdfExportUseTheme: loadPrefs().pdfExportUseTheme,
   lineNumberPosition: loadPrefs().lineNumberPosition,
   interfaceFont: loadPrefs().interfaceFont,
   textFont: loadPrefs().textFont,
@@ -3233,6 +3423,8 @@ export const useStore = create<Store>((set, get) => {
   kanbanColumnTitles: loadPrefs().kanbanColumnTitles,
   hasCompletedOnboarding: loadPrefs().hasCompletedOnboarding,
   vaultTasks: [],
+  customThemes: [],
+  overrides: [],
   tasksLoading: false,
   tasksFilter: '',
   taskCursorIndex: 0,
@@ -3255,6 +3447,7 @@ export const useStore = create<Store>((set, get) => {
   noteDirty: {},
   noteComments: {},
   activeCommentId: null,
+  closedTabStack: [],
 
   setVault: (v) =>
     set((s) => {
@@ -3262,7 +3455,7 @@ export const useStore = create<Store>((set, get) => {
       if (vaultChanged) {
         clearNoteContentReadCaches()
       }
-      return vaultChanged ? { vault: v, assetUndoStack: [] } : { vault: v }
+      return vaultChanged ? { vault: v, assetUndoStack: [], closedTabStack: [] } : { vault: v }
     }),
   setVaultSettings: async (next) => {
     try {
@@ -3942,10 +4135,12 @@ export const useStore = create<Store>((set, get) => {
   setTasksViewMode: (mode) => {
     set({ tasksViewMode: mode, taskCursorIndex: 0 })
     savePrefs(collectPrefs(get()))
+    persistVaultViewOverride({ tasksViewMode: mode })
   },
   setKanbanGroupBy: (group) => {
     set({ kanbanGroupBy: group })
     savePrefs(collectPrefs(get()))
+    persistVaultViewOverride({ kanbanGroupBy: group })
   },
   setKanbanColumnTitle: (group, columnId, title) => {
     const key = `${group}:${columnId}`
@@ -3955,6 +4150,7 @@ export const useStore = create<Store>((set, get) => {
     else delete nextTitles[key]
     set({ kanbanColumnTitles: nextTitles })
     savePrefs(collectPrefs(get()))
+    persistVaultViewOverride({ kanbanColumnTitles: nextTitles })
   },
   setTasksCalendarSelectedDate: (iso) => set({ tasksCalendarSelectedDate: iso }),
   setTasksCalendarMonthAnchor: (iso) => set({ tasksCalendarMonthAnchor: iso }),
@@ -4248,7 +4444,13 @@ export const useStore = create<Store>((set, get) => {
         ? window.zen
             .getVaultSettings()
             .then((settings) => {
-              set({ vaultSettings: normalizeVaultSettings(settings) })
+              const normalized = normalizeVaultSettings(settings)
+              // Re-overlay view overrides if vault.json changed externally — only
+              // in per-vault scope. (#292)
+              set({
+                vaultSettings: normalized,
+                ...(get().viewSettingsScope === 'vault' ? viewPrefsFromVault(normalized) : {})
+              })
             })
             .catch((err) => {
               console.error('refresh vault settings failed', err)
@@ -4590,6 +4792,28 @@ export const useStore = create<Store>((set, get) => {
     await get().closeTabInPane(state.activePaneId, path)
   },
 
+  reopenLastClosedTab: async () => {
+    while (get().closedTabStack.length > 0) {
+      const entry = get().closedTabStack.at(-1)
+      if (!entry) return
+      set((s) => ({ closedTabStack: s.closedTabStack.slice(0, -1) }))
+
+      const state = get()
+      const targetPaneId = findLeaf(state.paneLayout, entry.paneId)
+        ? entry.paneId
+        : state.activePaneId
+
+      if (!isWorkspaceVirtualTabPath(entry.path)) {
+        const noteExists = state.notes.some((note) => note.path === entry.path)
+        if (!noteExists) continue
+      }
+
+      await get().openNoteInPane(targetPaneId, entry.path, entry.index)
+      if (entry.pinned) get().pinTabInPane(targetPaneId, entry.path)
+      return
+    }
+  },
+
   trashActive: async () => {
     const state = get()
     const path = state.selectedPath
@@ -4836,6 +5060,29 @@ export const useStore = create<Store>((set, get) => {
     set({ keymapOverrides: {} })
     savePrefs(collectPrefs(get()))
   },
+  setOverrideEnabled: (name, on) => {
+    set((s) => {
+      const next = { ...s.enabledOverrides }
+      if (on) next[name] = 'on'
+      else delete next[name]
+      return { enabledOverrides: next }
+    })
+    savePrefs(collectPrefs(get()))
+  },
+  setThemeTweak: (slug, value) => {
+    set((s) => {
+      const next = { ...s.themeTweaks }
+      if (value) next[slug] = value
+      else delete next[slug]
+      return { themeTweaks: next }
+    })
+    // State updates immediately (live preview); the config write is debounced.
+    scheduleThemeTweaksSave()
+  },
+  resetThemeTweaks: () => {
+    set({ themeTweaks: {} })
+    savePrefs(collectPrefs(get()))
+  },
   setWhichKeyHints: (on) => {
     set({ whichKeyHints: on })
     savePrefs(collectPrefs(get()))
@@ -4915,6 +5162,10 @@ export const useStore = create<Store>((set, get) => {
     set({ wrapTabs: on })
     savePrefs(collectPrefs(get()))
   },
+  setPdfExportUseTheme: (on) => {
+    set({ pdfExportUseTheme: on })
+    savePrefs(collectPrefs(get()))
+  },
   setSettingsOpen: (open) => set({ settingsOpen: open }),
   setTheme: ({ id, family, mode }) => {
     set({ themeId: id, themeFamily: family, themeMode: mode })
@@ -4936,6 +5187,14 @@ export const useStore = create<Store>((set, get) => {
   setLineNumberMode: (mode) => {
     set({ lineNumberMode: mode })
     savePrefs(collectPrefs(get()))
+  },
+  setViewSettingsScope: (scope) => {
+    set({ viewSettingsScope: scope })
+    savePrefs(collectPrefs(get()))
+    // Switching to per-vault: overlay this vault's saved view immediately so the
+    // change takes effect without a reopen. Switching to global keeps the live
+    // (global) values as-is. (#292)
+    if (scope === 'vault') set(viewPrefsFromVault(get().vaultSettings))
   },
   setLineNumberPosition: (position) => {
     set({ lineNumberPosition: position })
@@ -4963,6 +5222,7 @@ export const useStore = create<Store>((set, get) => {
           ) as SystemFolderLabels
     }))
     savePrefs(collectPrefs(get()))
+    persistVaultViewOverride({ systemFolderLabels: get().systemFolderLabels })
   },
   setSidebarWidth: (px) => {
     const clamped = Math.min(520, Math.max(160, Math.round(px)))
@@ -4977,6 +5237,7 @@ export const useStore = create<Store>((set, get) => {
   setNoteSortOrder: (order) => {
     set({ noteSortOrder: order })
     savePrefs(collectPrefs(get()))
+    persistVaultViewOverride({ noteSortOrder: order })
   },
   reorderNoteManually: (draggedPath, targetPath, position) => {
     const dir = parentDirOf(draggedPath)
@@ -5039,14 +5300,17 @@ export const useStore = create<Store>((set, get) => {
   setGroupByKind: (on) => {
     set({ groupByKind: on })
     savePrefs(collectPrefs(get()))
+    persistVaultViewOverride({ groupByKind: on })
   },
   setAutoReveal: (on) => {
     set({ autoReveal: on })
     savePrefs(collectPrefs(get()))
+    persistVaultViewOverride({ autoReveal: on })
   },
   setUnifiedSidebar: () => {
     set({ unifiedSidebar: true })
     savePrefs(collectPrefs(get()))
+    persistVaultViewOverride({ unifiedSidebar: true })
   },
   setDarkSidebar: (on) => {
     set({ darkSidebar: on })
@@ -5832,6 +6096,20 @@ export const useStore = create<Store>((set, get) => {
   },
 
   closeTabInPane: async (paneId, path) => {
+    // Capture the tab's pane-local position before removal so Cmd/Ctrl+Shift+T
+    // can reopen multiple closed tabs in the same order and restore pinned state.
+    const closingLeaf = findLeaf(get().paneLayout, paneId)
+    const closingIndex = closingLeaf?.tabs.indexOf(path) ?? -1
+    const closedTabEntry: ClosedTabEntry | null =
+      closingLeaf && closingIndex !== -1
+        ? {
+            paneId,
+            path,
+            index: closingIndex,
+            pinned: closingLeaf.pinnedTabs.includes(path)
+          }
+        : null
+
     // Flush pending save for the tab we're about to drop. Other panes
     // (and the pinned-reference pane) may still reference the note via
     // its content cache — we only evict content when nothing else has
@@ -5852,11 +6130,15 @@ export const useStore = create<Store>((set, get) => {
         delete contents[path]
         delete dirty[path]
       }
+      const closedTabStack = closedTabEntry
+        ? [...s.closedTabStack, closedTabEntry].slice(-MAX_CLOSED_TAB_STACK)
+        : s.closedTabStack
       return {
         paneLayout: ensured.layout,
         activePaneId: ensured.activePaneId,
         noteContents: contents,
         noteDirty: dirty,
+        closedTabStack,
         ...activeFieldsFrom(ensured.layout, ensured.activePaneId, contents, dirty)
       }
     })
@@ -6475,6 +6757,7 @@ export const useStore = create<Store>((set, get) => {
       hasAssetsDir: false,
       assetFiles: [],
       assetUndoStack: [],
+      closedTabStack: [],
       vaultTasks: [],
       selectedTags: [],
       view: { kind: 'folder', folder: 'inbox', subpath: '' },
@@ -6526,6 +6809,7 @@ export const useStore = create<Store>((set, get) => {
         hasAssetsDir: false,
         assetFiles: [],
         assetUndoStack: [],
+        closedTabStack: [],
         vaultTasks: [],
         selectedTags: [],
         view: { kind: 'folder', folder: 'inbox', subpath: '' },
@@ -6586,6 +6870,7 @@ export const useStore = create<Store>((set, get) => {
           hasAssetsDir: false,
           assetFiles: [],
           assetUndoStack: [],
+          closedTabStack: [],
           vaultTasks: [],
           selectedTags: [],
           view: { kind: 'folder', folder: 'inbox', subpath: '' },
@@ -6621,6 +6906,7 @@ export const useStore = create<Store>((set, get) => {
         hasAssetsDir: false,
         assetFiles: [],
         assetUndoStack: [],
+        closedTabStack: [],
         vaultTasks: [],
         selectedTags: [],
         view: { kind: 'folder', folder: 'inbox', subpath: '' },
@@ -6758,6 +7044,7 @@ export const useStore = create<Store>((set, get) => {
         hasAssetsDir: false,
         assetFiles: [],
         assetUndoStack: [],
+        closedTabStack: [],
         vaultTasks: [],
         selectedTags: [],
         view: { kind: 'folder', folder: 'inbox', subpath: '' },
@@ -6840,6 +7127,7 @@ export const useStore = create<Store>((set, get) => {
         hasAssetsDir: false,
         assetFiles: [],
         assetUndoStack: [],
+        closedTabStack: [],
         vaultTasks: [],
         selectedTags: [],
         view: { kind: 'folder', folder: 'inbox', subpath: '' },
@@ -6920,6 +7208,7 @@ export const useStore = create<Store>((set, get) => {
         hasAssetsDir: false,
         assetFiles: [],
         assetUndoStack: [],
+        closedTabStack: [],
         vaultTasks: [],
         selectedTags: [],
         view: { kind: 'folder', folder: 'inbox', subpath: '' },
@@ -6964,6 +7253,7 @@ export const useStore = create<Store>((set, get) => {
           hasAssetsDir: false,
           assetFiles: [],
           assetUndoStack: [],
+          closedTabStack: [],
           vaultTasks: [],
           selectedTags: [],
           view: { kind: 'folder', folder: 'inbox', subpath: '' },
@@ -6997,6 +7287,7 @@ export const useStore = create<Store>((set, get) => {
         hasAssetsDir: false,
         assetFiles: [],
         assetUndoStack: [],
+        closedTabStack: [],
         vaultTasks: [],
         selectedTags: [],
         view: { kind: 'folder', folder: 'inbox', subpath: '' },
@@ -7122,6 +7413,120 @@ export function initConfigSync(): void {
   if (typeof bridge.onConfigChange === 'function') {
     try {
       bridge.onConfigChange((nextCfg) => applyPortableConfig(nextCfg))
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+function applyCustomThemes(themes: CustomTheme[]): void {
+  useStore.setState({ customThemes: themes })
+  // App.tsx injects the active theme's CSS in response to the state change.
+  // One-time canonicalization of any legacy two-id custom selection
+  // (`custom-<slug>-<mode>`) persisted by the pre-release WIP: only rewrites
+  // when the stored id doesn't match a loaded theme but its stripped form does,
+  // so a real theme whose slug ends in `-light`/`-dark` is left untouched.
+  const { themeId, themeMode } = useStore.getState()
+  if (isCustomThemeId(themeId)) {
+    const slug = customThemeSlugFromId(themeId)
+    if (slug && !themes.some((t) => t.slug === slug)) {
+      const legacy = /^custom-(.+)-(?:light|dark)$/.exec(themeId)
+      if (legacy && themes.some((t) => t.slug === legacy[1])) {
+        useStore
+          .getState()
+          .setTheme({ id: `custom-${legacy[1]}`, family: 'custom', mode: themeMode })
+      }
+    }
+  }
+}
+
+/** Re-scan the themes dir and apply the result. Used after an in-app change
+ *  (e.g. deleting a theme) so the UI updates without waiting on the watcher. */
+export function refreshCustomThemes(): void {
+  const bridge = typeof window !== 'undefined' ? window.zen : undefined
+  if (!bridge || typeof bridge.listCustomThemes !== 'function') return
+  void bridge.listCustomThemes().then(applyCustomThemes).catch(() => {})
+}
+
+/**
+ * Load user themes from the config dir, inject their CSS, and keep both in sync
+ * as files change. Safe to call on web (no bridge → no-op).
+ */
+export function initCustomThemes(): void {
+  const bridge = typeof window !== 'undefined' ? window.zen : undefined
+  if (!bridge || typeof bridge.listCustomThemes !== 'function') return
+  refreshCustomThemes()
+  if (typeof bridge.onCustomThemesChange === 'function') {
+    try {
+      bridge.onCustomThemesChange(applyCustomThemes)
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+let themeTweaksSaveTimer: ReturnType<typeof setTimeout> | null = null
+/** Debounce persistence of theme tweaks so dragging a color picker (which fires
+ *  continuously) doesn't spam the config file; in-memory state still updates
+ *  immediately for live preview. */
+function scheduleThemeTweaksSave(): void {
+  if (themeTweaksSaveTimer) clearTimeout(themeTweaksSaveTimer)
+  themeTweaksSaveTimer = setTimeout(() => {
+    themeTweaksSaveTimer = null
+    savePrefs(collectPrefs(useStore.getState()))
+  }, 250)
+}
+
+/** Keep only string→string entries (token slug → color). */
+function normalizeThemeTweaks(raw: unknown): Record<string, string> {
+  const out: Record<string, string> = {}
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+      if (typeof value === 'string' && value) out[key] = value
+    }
+  }
+  return out
+}
+
+/** Keep only string→string entries with a `.css` key (tolerant of hand edits). */
+function normalizeEnabledOverrides(raw: unknown): Record<string, string> {
+  const out: Record<string, string> = {}
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+      if (key.toLowerCase().endsWith('.css') && typeof value === 'string' && value) {
+        out[key] = value
+      }
+    }
+  }
+  return out
+}
+
+function applyOverrides(overrides: Override[]): void {
+  useStore.setState({ overrides })
+  // App.tsx injects the enabled overrides in response to the state change.
+}
+
+/** Re-scan the overrides dir and apply the result. */
+export function refreshOverrides(): void {
+  const bridge = typeof window !== 'undefined' ? window.zen : undefined
+  if (!bridge || typeof bridge.listOverrides !== 'function') return
+  void bridge
+    .listOverrides()
+    .then(applyOverrides)
+    .catch(() => {})
+}
+
+/**
+ * Load user overrides from the config dir and keep them in sync as files change.
+ * Safe to call on web (no bridge → no-op).
+ */
+export function initOverrides(): void {
+  const bridge = typeof window !== 'undefined' ? window.zen : undefined
+  if (!bridge || typeof bridge.listOverrides !== 'function') return
+  refreshOverrides()
+  if (typeof bridge.onOverridesChange === 'function') {
+    try {
+      bridge.onOverridesChange(applyOverrides)
     } catch {
       /* ignore */
     }
