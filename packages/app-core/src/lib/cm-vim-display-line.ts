@@ -31,19 +31,29 @@ type VimMotionState = {
  *    our normal/visual `j`/`k` mappings never reach them — they keep the default
  *    logical motion;
  *  - line/block visual selections (`Vj`, `<C-v>j`) fall back to whole-logical-
- *    line movement here so the selection grows a logical line at a time.
+ *    line movement here so the selection grows a logical line at a time;
+ *  - an explicit count (`3j`, `5k`) falls back to logical movement so the jump
+ *    lands on the line the relativenumber gutter shows — those numbers count
+ *    logical lines, so `{count}j` must too, not display rows (#314). This is the
+ *    classic `v:count == 0 ? gj : j` idiom; a bare `j`/`k` still moves by display
+ *    line.
  * `gj`/`gk` are untouched. Mirrors codemirror-vim's own `moveByDisplayLines`,
  * including maintaining the horizontal goal column across consecutive presses.
  */
-function zenMoveByDisplayLine(
+export function zenMoveByDisplayLine(
   cm: VimMotionCm,
   head: { line: number; ch: number },
-  motionArgs: { forward?: boolean; repeat?: number },
+  motionArgs: { forward?: boolean; repeat?: number; repeatIsExplicit?: boolean },
   vim: VimMotionState
 ): { line: number; ch: number } {
   const forward = !!motionArgs.forward
   const repeat = motionArgs.repeat || 1
-  if (vim.visualLine || vim.visualBlock || vim.inputState?.operator) {
+  if (
+    vim.visualLine ||
+    vim.visualBlock ||
+    vim.inputState?.operator ||
+    motionArgs.repeatIsExplicit
+  ) {
     const target = Math.max(
       cm.firstLine(),
       Math.min(cm.lastLine(), forward ? head.line + repeat : head.line - repeat)
