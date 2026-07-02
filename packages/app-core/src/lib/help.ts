@@ -478,6 +478,7 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
     description: 'Vim-style motions when a CSV database table has focus. The grid yields to these keys so they do not collide with global motions.',
     items: [
       { keys: 'h / j / k / l', action: 'Move the cell cursor', detail: 'Arrow keys also work. 0 / ^ jump to the first column, $ to the last.' },
+      { keys: 'H / L', action: 'Move the current column left / right', detail: 'Reorders columns from the keyboard and the cursor follows. You can also drag a column header, or use “Move left / Move right” in the field menu (⋯).' },
       { keys: 'g g / G', action: 'Jump to first / last row', detail: 'Fast travel within the current column.' },
       { keys: 'i / Enter', action: 'Edit the cell', detail: 'On a checkbox cell this toggles it instead of opening an editor.' },
       { keys: 'Space / x', action: 'Select the row', detail: 'Toggle the row’s selection for bulk actions.' },
