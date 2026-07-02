@@ -262,7 +262,7 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
   {
     title: 'Reference and connections support research-heavy work',
     body:
-      'Pin a companion note or PDF in the reference pane, then toggle the connections panel to inspect backlinks and unresolved links while you draft.'
+      'Pin a companion note or PDF in the reference pane, then toggle the connections panel to inspect backlinks and unresolved links while you draft. Connections count both `[[wikilinks]]` and standard Markdown links (`[text](Note.md)`), so incoming and outgoing associations show up even if you never use wikilinks.'
   },
   {
     title: 'Zen mode removes chrome',
