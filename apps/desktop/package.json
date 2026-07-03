@@ -120,6 +120,10 @@
     ],
     "extraResources": [
       {
+        "from": "../../node_modules/@excalidraw/excalidraw/dist/prod/fonts",
+        "to": "excalidraw-fonts"
+      },
+      {
         "from": "build/icon.png",
         "to": "icon.png"
       },
