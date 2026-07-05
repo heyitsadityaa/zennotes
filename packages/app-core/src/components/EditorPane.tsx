@@ -53,7 +53,7 @@ import { isImeComposing } from '../lib/ime'
 import { resolveCodeLanguage } from '../lib/cm-code-languages'
 import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
 import { completionNavKeymap } from '../lib/cm-completion-nav'
-import { vimAwareDefaultKeymap } from '../lib/cm-vim-default-keymap'
+import { vimAwareDefaultKeymap, vimAwareMarkdownKeymap } from '../lib/cm-vim-default-keymap'
 import { setYankToClipboardEnabled } from '../lib/cm-vim-clipboard'
 import { wireYankHighlight, yankHighlightExtension } from '../lib/cm-yank-highlight'
 import { frontmatterStyle } from '../lib/cm-frontmatter'
@@ -289,7 +289,8 @@ function buildEditorKeymap(vimMode: boolean, overrides: KeymapOverrides): Extens
 
 function markdownEditingExtensions(): Extension[] {
   return [
-    markdown({ base: markdownLanguage, codeLanguages: resolveCodeLanguage, addKeymap: true }),
+    markdown({ base: markdownLanguage, codeLanguages: resolveCodeLanguage, addKeymap: false }),
+    vimAwareMarkdownKeymap,
     markdownListIndentPlugin,
     frontmatterStyle,
     orderedListRenumber,
