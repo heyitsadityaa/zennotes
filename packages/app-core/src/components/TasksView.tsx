@@ -304,11 +304,13 @@ export function TasksView(): JSX.Element {
       }
 
       if (key === 'Escape') {
-        // Tasks is a tab like a note tab — Esc clears an active filter but must
-        // never close the tab (other tabs don't close on Esc). Close with :q,
-        // the header ✕, or ⌘W. (#151)
+        // First Esc clears filter, second Esc closes view.(#322)
         consume()
-        if (filter) setFilter('')
+        if (filter) {
+          setFilter('')
+        } else {
+          closeTasksView()
+        }
         return
       }
 
@@ -471,8 +473,11 @@ export function TasksView(): JSX.Element {
                 if (isImeComposing(e)) return
                 if (e.key === 'Escape') {
                   e.stopPropagation()
-                  if (filter) setFilter('')
-                  else e.currentTarget.blur()
+                  if (filter) {
+                    setFilter('')
+                  } else {
+                    closeTasksView()
+                  } 
                 }
                 if (e.key === 'Enter') {
                   e.currentTarget.blur()
