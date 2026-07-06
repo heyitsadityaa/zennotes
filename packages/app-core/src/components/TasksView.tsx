@@ -493,7 +493,7 @@ export function TasksView(): JSX.Element {
             type="button"
             onClick={closeTasksView}
             className="rounded-md px-2 py-1 text-xs text-current/70 hover:bg-paper-200/80"
-            title="Close (:q or Esc)"
+            title="Close (:q)"
           >
             Close
           </button>
