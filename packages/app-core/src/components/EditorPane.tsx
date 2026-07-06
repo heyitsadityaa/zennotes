@@ -202,7 +202,6 @@ import {
 } from '../lib/editor-paste-images'
 import {
   paneModeForPath,
-  paneModesWithPathMode,
   ZEN_SET_PANE_MODE_EVENT,
   type PaneMode,
   type PaneModesByPath
@@ -669,6 +668,8 @@ function followEditorLink(target: string): boolean {
   return false
 }
 
+const EMPTY_PANE_MODES: PaneModesByPath = {}
+
 export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const paneId = pane.id
   const isActive = useStore((s) => s.activePaneId === paneId)
@@ -744,7 +745,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const vaultSettings = useStore((s) => s.vaultSettings)
   const autoCalendarPanel = useStore((s) => s.autoCalendarPanel)
 
-  const [modesByPath, setModesByPath] = useState<PaneModesByPath>({})
+  const modesByPath = useStore((s) => s.paneModes[paneId]) ?? EMPTY_PANE_MODES
+  const setPaneModeForPath = useStore((s) => s.setPaneModeForPath)
   const mode = paneModeForPath(modesByPath, activeTab)
   const [connectionsOpen, setConnectionsOpen] = useState(false)
   const [outlineOpen, setOutlineOpen] = useState(false)
@@ -914,7 +916,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
 
 
   const applyPaneMode = useCallback((nextMode: PaneMode) => {
-    setModesByPath((current) => paneModesWithPathMode(current, activeTab, nextMode))
+    setPaneModeForPath(paneId, activeTab, nextMode)
     setActivePane(paneId)
     setFocusedPanel('editor')
     requestAnimationFrame(() => {
@@ -924,7 +926,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       }
       focusEditorNormalMode()
     })
-  }, [activeTab, paneId, setActivePane, setFocusedPanel])
+  }, [activeTab, paneId, setPaneModeForPath, setActivePane, setFocusedPanel])
 
   // `zen:toggle-outline` — routed only to the active pane, same pattern
   // as the connections toggle.

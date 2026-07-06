@@ -60,11 +60,15 @@ export function VimNav(): JSX.Element | null {
   const jumpTopPending = useRef(0)
   const previousBufferPending = useRef(0)
   const nextBufferPending = useRef(0)
+  // #321: `g`-prefix pending for gt/gT. Tracked separately (not via advanceSequence)
+  // because `g` is shared with gg/gd, so it must NOT be consumed on the `g` press.
+  const gTabPending = useRef(false)
   const leaderPending = useRef<'leader' | 'leader-l' | 'leader-s' | null>(null)
   const ctrlWTimer = useRef<ReturnType<typeof setTimeout>>()
   const jumpTopTimer = useRef<ReturnType<typeof setTimeout>>()
   const previousBufferTimer = useRef<ReturnType<typeof setTimeout>>()
   const nextBufferTimer = useRef<ReturnType<typeof setTimeout>>()
+  const gTabTimer = useRef<ReturnType<typeof setTimeout>>()
   const leaderTimer = useRef<ReturnType<typeof setTimeout>>()
   // #309: timestamp of the last Space keydown observed inside an Excalidraw
   // canvas (or null). A quick keyup after it arms the leader; a longer hold was
@@ -473,6 +477,38 @@ export function VimNav(): JSX.Element | null {
         ) {
           return
         }
+
+        // #321: gt/gT global fallback (they only fired inside the focused editor
+        // before). `g` is a shared prefix (gg/gd), so advanceSequence can't be used
+        // — it would consume `g`. Arm on `g` WITHOUT consuming it (so gg still
+        // resolves downstream), then act on the following t/T.
+        const gTabTokens = getSequenceTokens(overrides, 'vim.tabNext')
+        const gPrevTokens = getSequenceTokens(overrides, 'vim.tabPrevious')
+        const gTok = sequenceTokenFromEvent(e)
+        if (gTabPending.current) {
+          gTabPending.current = false
+          if (gTabTimer.current) clearTimeout(gTabTimer.current)
+          if (gTabTokens.length === 2 && gTok === gTabTokens[1]) {
+            e.preventDefault()
+            e.stopImmediatePropagation()
+            navigateActiveBuffer(useStore.getState(), 1)
+            return
+          }
+          if (gPrevTokens.length === 2 && gTok === gPrevTokens[1]) {
+            e.preventDefault()
+            e.stopImmediatePropagation()
+            navigateActiveBuffer(useStore.getState(), -1)
+            return
+          }
+          // Not a tab completion (e.g. gg, gd): fall through without consuming.
+        }
+        if (gTok && gTabTokens.length === 2 && gTok === gTabTokens[0]) {
+          gTabPending.current = true
+          if (gTabTimer.current) clearTimeout(gTabTimer.current)
+          gTabTimer.current = setTimeout(() => {
+            gTabPending.current = false
+          }, 500)
+        }
       }
 
       // ------- Ctrl+w pending → resolve panel / pane switch ------------
@@ -499,6 +535,14 @@ export function VimNav(): JSX.Element | null {
               path: activePath
             })
           }
+          return
+        }
+
+        // <C-w>c / <C-w>q → close the active tab (vim window-close), so closing is
+        // reliable under the same prefix as pane nav rather than depending on a
+        // platform-specific Ctrl+W that also means "close" only on Linux/Win. (#321)
+        if ((e.key === 'c' || e.key === 'q') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+          void state.closeActiveNote()
           return
         }
 
@@ -647,6 +691,16 @@ export function VimNav(): JSX.Element | null {
           ctrlWPending.current = false
           clearEditorPendingVimStatus(useStore.getState().editorViewRef)
         }, 800)
+        return
+      }
+
+      // #321: OS key auto-repeat of a held leader key (Space) must not read as a
+      // second leader press, which cancels the armed leader so <leader>h and the
+      // rest silently do nothing. Swallow the repeat and keep the leader armed.
+      // (Mirrors the !e.repeat guard on the Excalidraw arm path.)
+      if (e.repeat && leaderPending.current && sequenceTokenFromEvent(e) === leaderToken) {
+        e.preventDefault()
+        e.stopImmediatePropagation()
         return
       }
 
@@ -873,7 +927,16 @@ export function VimNav(): JSX.Element | null {
         const wantsHalf =
           matchesSequenceToken(e, overrides, 'nav.halfPageDown') ||
           matchesSequenceToken(e, overrides, 'nav.halfPageUp')
-        if (wantsHalf && previewEl && !leaderPending.current && !editorInsertMode) {
+        // #321: when the editor is focused (e.g. Split mode, with a preview also
+        // on screen), let its own Vim Ctrl+D/Ctrl+U half-page mapping run instead
+        // of stealing the key to scroll the preview.
+        if (
+          wantsHalf &&
+          previewEl &&
+          !leaderPending.current &&
+          !editorInsertMode &&
+          !isEditorFocused(state.editorViewRef)
+        ) {
           const tag = (e.target as HTMLElement | null)?.tagName
           if (tag !== 'INPUT' && tag !== 'TEXTAREA') {
             e.preventDefault()
@@ -1647,9 +1710,18 @@ export function VimNav(): JSX.Element | null {
   // ---- Helpers ---------------------------------------------------------
 
   function getPreviewScrollElement(): HTMLElement | null {
-    return [...document.querySelectorAll<HTMLElement>('[data-preview-scroll]')].find(
-      (el) => el.getClientRects().length > 0
-    ) ?? null
+    const visible = [
+      ...document.querySelectorAll<HTMLElement>('[data-preview-scroll]')
+    ].filter((el) => el.getClientRects().length > 0)
+    if (visible.length <= 1) return visible[0] ?? null
+    // With split panes there are several previews. Scroll the one in the ACTIVE
+    // pane, not just the first in DOM order (the top pane in a horizontal split),
+    // so j/k/scroll act on the pane the user is actually in. (#321)
+    const activePaneId = useStore.getState().activePaneId
+    const activePane = activePaneId
+      ? document.querySelector<HTMLElement>(`[data-pane-id="${CSS.escape(activePaneId)}"]`)
+      : null
+    return visible.find((el) => activePane?.contains(el)) ?? visible[0] ?? null
   }
 
   function getHoverPreviewScrollElement(): HTMLElement | null {
