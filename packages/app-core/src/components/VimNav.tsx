@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { completionStatus } from '@codemirror/autocomplete'
 import { isTagsViewActive, isTasksViewActive, useStore } from '../store'
 import { HintOverlay } from './HintOverlay'
 import { WhichKeyOverlay, type WhichKeyItem } from './WhichKeyOverlay'
@@ -402,8 +403,13 @@ export function VimNav(): JSX.Element | null {
       // handler — so they work on every platform and beat Vim's own Ctrl
       // chords (e.g. <C-b>) in normal/visual mode on Linux/Windows. `Mod`
       // resolves to ⌘ on macOS and Ctrl elsewhere.
+      // While an autocomplete menu is open (slash commands, @ dates, [[ links,
+      // template variables), its own Ctrl-based navigation owns these chords —
+      // e.g. Ctrl+K moves the selection up rather than "insert link". Defer the
+      // inline-format shortcuts to the completion handler so they can't hijack
+      // the open menu. (#337)
       const fmtView = state.editorViewRef
-      if (fmtView && isEditorFocused(fmtView)) {
+      if (fmtView && isEditorFocused(fmtView) && completionStatus(fmtView.state) !== 'active') {
         // Focus the selection toolbar (when shown) for keyboard navigation.
         if (matchesShortcutBinding(e, 'Mod+/')) {
           const firstItem = document.querySelector<HTMLElement>(
