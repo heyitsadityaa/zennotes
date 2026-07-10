@@ -550,17 +550,17 @@ export const HELP_VIM_COMMANDS: HelpExCommand[] = [
   {
     command: ':daily',
     summary: "Open today's daily note",
-    detail: 'Open or create today’s daily note (requires daily notes enabled in Settings → Vault). Uses the assigned daily template if one is set.'
+    detail: 'Open or create today’s daily note (requires daily notes enabled in Settings → Vault → Periodic notes). Uses the assigned daily template if one is set.'
   },
   {
     command: ':weekly',
     summary: "Open this week's note",
-    detail: 'Open or create this week’s note with the configured weekly note pattern (requires weekly notes enabled in Settings → Vault). Uses the assigned weekly template if one is set.'
+    detail: 'Open or create this week’s note with the configured weekly note pattern (requires weekly notes enabled in Settings → Vault → Periodic notes). Uses the assigned weekly template if one is set.'
   },
   {
     command: ':monthly',
     summary: "Open this month's note",
-    detail: 'Open or create this month’s note with the configured monthly note pattern (requires monthly notes enabled in Settings → Vault). Uses the assigned monthly template if one is set.'
+    detail: 'Open or create this month’s note with the configured monthly note pattern (requires monthly notes enabled in Settings → Vault → Periodic notes). Uses the assigned monthly template if one is set.'
   },
   {
     command: ':tag foo bar',
@@ -705,17 +705,17 @@ export const HELP_VIM_COMMANDS: HelpExCommand[] = [
   {
     command: '<Space> d',
     summary: "Leader today's daily note",
-    detail: 'Open or create today’s daily note (when daily notes are enabled in Settings → Vault).'
+    detail: 'Open or create today’s daily note (when daily notes are enabled in Settings → Vault → Periodic notes).'
   },
   {
     command: '<Space> w',
     summary: "Leader this week's note",
-    detail: 'Open or create this week’s note (when weekly notes are enabled in Settings → Vault).'
+    detail: 'Open or create this week’s note (when weekly notes are enabled in Settings → Vault → Periodic notes).'
   },
   {
     command: '<Space> m',
     summary: "Leader this month's note",
-    detail: 'Open or create this month’s note (when monthly notes are enabled in Settings → Vault).'
+    detail: 'Open or create this month’s note (when monthly notes are enabled in Settings → Vault → Periodic notes).'
   },
   {
     command: ':outline',
