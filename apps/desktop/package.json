@@ -235,6 +235,7 @@
         "AppImage",
         "deb",
         "pacman",
+        "rpm",
         "tar.gz"
       ],
       "icon": "build/icons",
@@ -258,6 +259,9 @@
       ]
     },
     "deb": {
+      "afterInstall": "build/after-install.sh"
+    },
+    "rpm": {
       "afterInstall": "build/after-install.sh"
     }
   }
