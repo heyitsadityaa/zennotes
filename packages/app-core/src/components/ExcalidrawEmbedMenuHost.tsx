@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
-import { ExcalidrawIcon, ImageIcon } from './icons'
+import { ExcalidrawIcon, ImageIcon, ColumnsIcon, LinkIcon, ExternalIcon } from './icons'
 import { useStore } from '../store'
 import { getExcalidrawPreview } from '../lib/excalidraw-preview'
 
@@ -49,9 +49,34 @@ export function ExcalidrawEmbedMenuHost(): JSX.Element | null {
       onSelect: () => void useStore.getState().openNoteInTab(menu.path)
     },
     {
+      label: 'Open in split',
+      icon: <ColumnsIcon />,
+      onSelect: () => {
+        const s = useStore.getState()
+        void s.splitPaneWithTab({ targetPaneId: s.activePaneId, edge: 'right', path: menu.path })
+      }
+    },
+    { kind: 'separator' },
+    {
       label: 'Copy image',
       icon: <ImageIcon />,
       onSelect: () => void copyDrawingImage(menu.path)
+    },
+    {
+      label: 'Copy embed',
+      icon: <LinkIcon />,
+      onSelect: () => {
+        // Copy the Obsidian-style embed for the drawing's filename, so it can be
+        // pasted into another note (resolveExcalidrawEmbedPath matches by name).
+        const name = menu.path.split('/').pop() ?? menu.path
+        window.zen.clipboardWriteText(`![[${name}]]`)
+      }
+    },
+    { kind: 'separator' },
+    {
+      label: 'Reveal in File Manager',
+      icon: <ExternalIcon />,
+      onSelect: () => void window.zen.revealNote(menu.path)
     }
   ]
 
