@@ -124,6 +124,10 @@ type SettingsSectionId = "look" | "editing" | "vault" | "system";
 interface SettingsSubTab {
   id: string;
   title: string;
+  /** Shown in the modal header while this sub-tab is active, so the summary
+   *  stays accurate as you move between sub-tabs. Falls back to the category
+   *  description when omitted. */
+  description?: string;
   /** Search-item ids that live on this sub-tab, so search-jump can open the right one. */
   searchIds?: string[];
   content: JSX.Element;
@@ -1693,6 +1697,12 @@ export function SettingsModal(): JSX.Element {
           targetId: leaderHintDurationTargetId,
         },
         {
+          id: "scroll-off",
+          title: "Scroll offset",
+          description: "Vim scrolloff — lines kept above and below the cursor.",
+          keywords: ["scroll", "scrolloff", "vim", "cursor", "margin"],
+        },
+        {
           id: "vault-text-search-backend",
           title: "Vault text search backend",
           description:
@@ -1783,6 +1793,20 @@ export function SettingsModal(): JSX.Element {
           keywords: ["pdf", "embed"],
         },
         {
+          id: "time-format",
+          title: "Time format",
+          description: "Clock format the @time macro inserts.",
+          keywords: [
+            "time",
+            "clock",
+            "12 hour",
+            "24 hour",
+            "@time",
+            "now",
+            "macro",
+          ],
+        },
+        {
           id: "date-titled-quick-notes",
           title: "Date-titled Quick Notes",
           description:
@@ -1813,6 +1837,7 @@ export function SettingsModal(): JSX.Element {
             "leader-key-hints",
             "leader-hint-behavior",
             "leader-hint-duration",
+            "scroll-off",
           ],
           content: (
             <div className="space-y-6">
@@ -1843,6 +1868,17 @@ export function SettingsModal(): JSX.Element {
                       value={vimYankToClipboard}
                       settingId="vim-yank-to-clipboard"
                       onChange={setVimYankToClipboard}
+                    />
+                    <SliderRow
+                      label="Scroll offset"
+                      description="Vim scrolloff — lines kept above and below the cursor while scrolling. 0 disables it."
+                      value={editorScrollOff}
+                      min={0}
+                      max={20}
+                      step={1}
+                      unit=" lines"
+                      settingId="scroll-off"
+                      onChange={setEditorScrollOff}
                     />
                     <ToggleRow
                       label="Leader key hints"
@@ -1969,6 +2005,7 @@ export function SettingsModal(): JSX.Element {
             "word-wrap",
             "smooth-preview-scroll",
             "pdfs-in-edit-mode",
+            "time-format",
           ],
           content: (
             <div className="space-y-6">
@@ -2037,6 +2074,17 @@ export function SettingsModal(): JSX.Element {
                     { value: "full", label: "Full" },
                   ]}
                   onChange={(next) => setPdfEmbedInEditMode(next)}
+                />
+                <SegmentedRow
+                  label="Time format"
+                  description="Clock format the @time macro inserts (@time / @now in a note)."
+                  value={timeFormat}
+                  settingId="time-format"
+                  options={[
+                    { value: "12h", label: "12-hour" },
+                    { value: "24h", label: "24-hour" },
+                  ]}
+                  onChange={(next) => setTimeFormat(next)}
                 />
                 <ToggleRow
                   label="Date-titled Quick Notes"
@@ -2212,26 +2260,6 @@ export function SettingsModal(): JSX.Element {
           keywords: ["spacing"],
         },
         {
-          id: "scroll-off",
-          title: "Scroll offset",
-          description: "Vim scrolloff — lines kept above and below the cursor.",
-          keywords: ["scroll", "scrolloff", "vim", "cursor", "margin"],
-        },
-        {
-          id: "time-format",
-          title: "Time format",
-          description: "Clock format the @time macro inserts.",
-          keywords: [
-            "time",
-            "clock",
-            "12 hour",
-            "24 hour",
-            "@time",
-            "now",
-            "macro",
-          ],
-        },
-        {
           id: "reading-width",
           title: "Reading width",
           description: "Maximum width for preview and split-preview content.",
@@ -2324,28 +2352,6 @@ export function SettingsModal(): JSX.Element {
               format={(v) => v.toFixed(2)}
             />
             <SliderRow
-              label="Scroll offset"
-              description="Vim scrolloff — lines kept above and below the cursor while scrolling. 0 disables it."
-              value={editorScrollOff}
-              min={0}
-              max={20}
-              step={1}
-              unit=" lines"
-              settingId="scroll-off"
-              onChange={setEditorScrollOff}
-            />
-            <SegmentedRow
-              label="Time format"
-              description="Clock format the @time macro inserts (@time / @now in a note)."
-              value={timeFormat}
-              settingId="time-format"
-              options={[
-                { value: "12h", label: "12-hour" },
-                { value: "24h", label: "24-hour" },
-              ]}
-              onChange={(next) => setTimeFormat(next)}
-            />
-            <SliderRow
               label="Reading width"
               description="Maximum width for preview and split-preview content."
               value={previewMaxWidth}
@@ -2410,7 +2416,8 @@ export function SettingsModal(): JSX.Element {
     {
       id: "vault",
       title: "Vault",
-      description: "Current vault location and root-folder controls.",
+      description:
+        "Vault location, note organization, periodic notes, and folder labels.",
       keywords: ["folder", "root", "location", "open vault", "change"],
       searchItems: [
         {
@@ -2744,6 +2751,7 @@ export function SettingsModal(): JSX.Element {
         {
           id: "location",
           title: "Location",
+          description: "Where this vault lives, plus saved remote connections.",
           searchIds: ["vault-location", "saved-remote-workspaces"],
           content: (
             <div className="space-y-6">
@@ -2913,36 +2921,9 @@ export function SettingsModal(): JSX.Element {
         {
           id: "notes",
           title: "Notes",
-          searchIds: [
-            "primary-notes-location",
-            "enable-daily-notes",
-            "daily-notes-directory",
-            "daily-note-title-pattern",
-            "daily-note-locale",
-            "daily-note-pattern-support",
-            "daily-note-pattern-reset",
-            "open-todays-daily-note",
-            "daily-notes-template",
-            "enable-weekly-notes",
-            "weekly-notes-directory",
-            "weekly-note-title-pattern",
-            "weekly-note-locale",
-            "weekly-note-pattern-support",
-            "weekly-note-pattern-reset",
-            "weekly-notes-template",
-            "open-this-week-note",
-            "enable-monthly-notes",
-            "monthly-notes-directory",
-            "monthly-note-title-pattern",
-            "monthly-note-locale",
-            "monthly-note-pattern-support",
-            "monthly-note-pattern-reset",
-            "monthly-notes-template",
-            "open-this-month-note",
-            "auto-calendar-panel",
-            "calendar-week-start",
-            "calendar-week-numbers",
-          ],
+          description:
+            "How primary notes, new drawings and databases, and view preferences are organized.",
+          searchIds: ["primary-notes-location", "view-settings-scope"],
           content: (
             <div className="space-y-6">
               <Section
@@ -3055,7 +3036,45 @@ export function SettingsModal(): JSX.Element {
                   }
                 />
               </Section>
-
+            </div>
+          ),
+        },
+        {
+          id: "periodic",
+          title: "Periodic notes",
+          description:
+            "Daily, weekly, and monthly note workflows, plus the calendar panel.",
+          searchIds: [
+            "enable-daily-notes",
+            "daily-notes-directory",
+            "daily-note-title-pattern",
+            "daily-note-locale",
+            "daily-note-pattern-support",
+            "daily-note-pattern-reset",
+            "open-todays-daily-note",
+            "daily-notes-template",
+            "enable-weekly-notes",
+            "weekly-notes-directory",
+            "weekly-note-title-pattern",
+            "weekly-note-locale",
+            "weekly-note-pattern-support",
+            "weekly-note-pattern-reset",
+            "weekly-notes-template",
+            "open-this-week-note",
+            "enable-monthly-notes",
+            "monthly-notes-directory",
+            "monthly-note-title-pattern",
+            "monthly-note-locale",
+            "monthly-note-pattern-support",
+            "monthly-note-pattern-reset",
+            "monthly-notes-template",
+            "open-this-month-note",
+            "auto-calendar-panel",
+            "calendar-week-start",
+            "calendar-week-numbers",
+          ],
+          content: (
+            <div className="space-y-6">
               <Section
                 title="Daily Notes"
                 description="Create one note per day with a simple date title and keep them in a dedicated directory."
@@ -3581,8 +3600,10 @@ export function SettingsModal(): JSX.Element {
           ),
         },
         {
-          id: "system",
-          title: "System",
+          id: "folders",
+          title: "Folders",
+          description:
+            "Rename the built-in folders and the Tasks view as they appear in the UI.",
           searchIds: [
             "inbox-label",
             "quick-notes-label",
@@ -4159,6 +4180,19 @@ export function SettingsModal(): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visibleSettingResultId]);
 
+  // Header summary follows the active sub-tab so it describes what's actually on
+  // screen, instead of always showing the category's first-sub-tab blurb.
+  const activeSubTabForHeader = visibleCategory?.subTabs?.find(
+    (tab) =>
+      tab.id ===
+      (activeSubTabByCategory[visibleCategory.id] ??
+        visibleCategory.subTabs?.[0]?.id),
+  );
+  const headerDescription =
+    activeSubTabForHeader?.description ??
+    visibleCategory?.description ??
+    "Search the navigation on the left to jump to a settings section.";
+
   return (
     <>
       <div
@@ -4321,8 +4355,7 @@ export function SettingsModal(): JSX.Element {
                   {visibleCategory?.title ?? "Settings"}
                 </h2>
                 <p className="mt-2 max-w-2xl text-sm leading-6 text-ink-500">
-                  {visibleCategory?.description ??
-                    "Search the navigation on the left to jump to a settings section."}
+                  {headerDescription}
                 </p>
               </div>
               <Button
