@@ -626,7 +626,10 @@ class LocalExcalidrawWidget extends WidgetType {
     image.addEventListener('click', (event) => {
       event.preventDefault()
       event.stopPropagation()
-      void useStore.getState().openNoteInTab(assetTabPath(this.resolvedPath))
+      // Open the drawing itself (routes to the Excalidraw editor via
+      // isExcalidrawPath). Wrapping it as an asset tab (zen://asset/…) instead
+      // hits the generic asset viewer, which offers to download the file. (#360)
+      void useStore.getState().openNoteInTab(this.resolvedPath)
     })
 
     frame.append(image)

@@ -895,7 +895,10 @@ export const Preview = memo(function Preview({
               height={hAttr ? Number(hAttr) : undefined}
               className="excalidraw-embed-preview"
               onClick={() => {
-                void openNoteInTabRef.current(assetTabPath(resolved));
+                // Open the drawing (isExcalidrawPath → Excalidraw editor). An
+                // asset tab (zen://asset/…) would route to the generic asset
+                // viewer and offer to download the file instead. (#360)
+                void openNoteInTabRef.current(resolved);
               }}
             />,
           );
